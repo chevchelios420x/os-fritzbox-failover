@@ -1,11 +1,13 @@
 FRITZ!Box failover helper for OPNsense.
 
 Watches a FRITZ!Box Cable WAN line via TR-064 (WANIPConnection:1
-GetStatusInfo) and a forced probe ping through the cable gateway.
+GetStatusInfo) and pings to several internet addresses forced through
+the cable gateway, while the gateway itself is monitored against the
+FRITZ!Box to avoid false dpinger alarms.
 On sustained failure it swaps the gateway monitor IP to a dead
 address so dpinger reports 100% loss and OPNsense's native gateway
 groups fail over, without disabling the gateway. When the cable line
-is healthy again the original monitor IP is restored.
+is healthy again the normal monitor IP is restored.
 
 Plugin Changelog
 ================

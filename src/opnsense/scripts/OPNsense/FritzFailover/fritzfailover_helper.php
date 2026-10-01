@@ -91,12 +91,14 @@ switch ($cmd) {
     case 'config':
         emit('FF_ENABLED', (string)$mdl->enabled);
         emit('FF_FRITZBOX_IP', (string)$mdl->fritzbox_ip);
-        emit('FF_TR064_ENABLED', (string)$mdl->tr064_enabled);
+        emit('FF_CHECK_MODE', (string)$mdl->check_mode);
         emit('FF_TR064_PORT', (int)(string)$mdl->tr064_port);
         emit('FF_TR064_HAS_AUTH', ((string)$mdl->tr064_username !== '' && (string)$mdl->tr064_password !== '') ? '1' : '0');
         emit('FF_GATEWAY', (string)$mdl->gateway);
         emit('FF_GOOD_MONITOR', (string)$mdl->good_monitor);
         emit('FF_BAD_MONITOR', (string)$mdl->bad_monitor);
+        $targets = array_filter(explode(',', (string)$mdl->probe_targets), 'is_ipv4');
+        emit('FF_PROBE_TARGETS', implode(' ', $targets));
         emit('FF_PING_COUNT', (int)(string)$mdl->ping_count);
         emit('FF_PING_TIMEOUT', (int)(string)$mdl->ping_timeout);
         emit('FF_FAIL_THRESHOLD', (int)(string)$mdl->fail_threshold);
@@ -122,6 +124,9 @@ switch ($cmd) {
         emit('GW_MONITOR', $gw !== null ? ($gw['monitor'] ?? '') : '');
         emit('GW_MONITOR_DISABLED', $gw !== null && !empty($gw['monitor_disable']) ? '1' : '0');
         emit('GW_DEVICE', resolve_device($mdl, $gw));
+        /* default "force gw" rule sends traffic sourced from an interface address via its gateway */
+        $sys = Config::getInstance()->object()->system;
+        emit('GW_FORCE_GW', empty((string)$sys->pf_disable_force_gw) ? '1' : '0');
         break;
 
     case 'setmonitor':

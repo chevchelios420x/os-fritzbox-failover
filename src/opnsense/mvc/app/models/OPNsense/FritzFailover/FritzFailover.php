@@ -58,18 +58,47 @@ class FritzFailover extends BaseModel
             ));
         }
 
-        $period = (int)(string)$this->ping_count * (int)(string)$this->ping_timeout;
-        if ($period >= (int)(string)$this->check_interval) {
-            $messages->appendMessage(new Message(
-                gettext('Ping count multiplied by ping timeout must be lower than the check interval.'),
-                'check_interval'
-            ));
+        $mode = (string)$this->check_mode;
+        $uses_fritzbox = in_array($mode, ['fritzbox_ping', 'fritzbox']);
+        $uses_ping = in_array($mode, ['fritzbox_ping', 'ping']);
+
+        $targets = array_filter(explode(',', (string)$this->probe_targets));
+        if ($uses_ping) {
+            if (count($targets) == 0) {
+                $messages->appendMessage(new Message(
+                    gettext('Please enter at least one internet test address, e.g. 9.9.9.9.'),
+                    'probe_targets'
+                ));
+            } elseif (count($targets) > 5) {
+                $messages->appendMessage(new Message(
+                    gettext('Please enter at most 5 internet test addresses.'),
+                    'probe_targets'
+                ));
+            }
+            foreach ($targets as $target) {
+                if (in_array($target, [(string)$this->fritzbox_ip, (string)$this->good_monitor, (string)$this->bad_monitor])) {
+                    $messages->appendMessage(new Message(
+                        sprintf(
+                            gettext('%s cannot be used as internet test address, it must be an address on the internet.'),
+                            $target
+                        ),
+                        'probe_targets'
+                    ));
+                }
+            }
+            $period = (int)(string)$this->ping_count * (int)(string)$this->ping_timeout;
+            if ($period >= (int)(string)$this->check_interval) {
+                $messages->appendMessage(new Message(
+                    gettext('Ping count multiplied by ping timeout must be lower than the check interval.'),
+                    'check_interval'
+                ));
+            }
         }
 
-        if ((string)$this->enabled === '1' && (string)$this->tr064_enabled === '1') {
+        if ((string)$this->enabled === '1' && $uses_fritzbox) {
             if ((string)$this->tr064_username === '' || (string)$this->tr064_password === '') {
                 $messages->appendMessage(new Message(
-                    gettext('Please enter the TR-064 username and password or disable the FRITZ!Box status query.'),
+                    gettext('Please enter the TR-064 username and password or choose the ping only check.'),
                     'tr064_username'
                 ));
             }

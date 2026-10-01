@@ -28,10 +28,13 @@
 
 # FRITZ!Box Cable WAN failover monitor for OPNsense.
 #
-# Instead of disabling the cable gateway (which breaks policy based routing),
-# the gateway monitor IP is switched to an unreachable address so dpinger
-# reports 100% loss and gateway groups fail over natively. A probe ping is
-# forced out of the cable interface to detect when the line is usable again.
+# The cable gateway is normally monitored against the FRITZ!Box itself (stable,
+# no false alarms). This script decides whether the internet behind the cable
+# line really works, using the FRITZ!Box TR-064 status and/or pings sourced
+# from the cable interface. When the line is dead, the gateway monitor IP is
+# switched to an unreachable address so dpinger reports 100% loss and the
+# gateway groups fail over natively; when it is healthy again the normal
+# monitor IP is restored. The gateway itself is never disabled.
 #
 # usage: fritzbox_failover.sh run|check|test|state|restore
 
@@ -54,6 +57,8 @@ IGD_URL_PATH="/igdupnp/control/WANIPConn1"
 
 FAILS=0
 OKS=0
+USE_TR064=1
+USE_PING=1
 TR_STATE="unknown"
 TR_TEXT="-"
 PING_OK=0
@@ -87,6 +92,12 @@ load_config()
 {
 	_cfg=$(${HELPER} config 2>/dev/null) || return 1
 	eval "${_cfg}"
+	case "${FF_CHECK_MODE}" in
+	fritzbox_ping) USE_TR064=1; USE_PING=1 ;;
+	fritzbox) USE_TR064=1; USE_PING=0 ;;
+	ping) USE_TR064=0; USE_PING=1 ;;
+	*) return 1 ;;
+	esac
 	for _v in "${FF_PING_COUNT}" "${FF_PING_TIMEOUT}" "${FF_FAIL_THRESHOLD}" \
 	    "${FF_RECOVER_THRESHOLD}" "${FF_CHECK_INTERVAL}" "${FF_TR064_PORT}"; do
 		is_uint "${_v}" || return 1
@@ -167,8 +178,8 @@ parse_status()
 tr064_check()
 {
 	TR_STATE="unknown"
-	if [ "${FF_TR064_ENABLED}" != "1" ]; then
-		TR_TEXT="disabled"
+	if [ "${USE_TR064}" != "1" ]; then
+		TR_TEXT="not used"
 		return 0
 	fi
 
@@ -207,52 +218,99 @@ tr064_check()
 	return 0
 }
 
-# Forced probe through the cable interface: source address of the cable
-# interface and, if needed, a temporary host route via the cable gateway so
-# the probe never leaves through the backup line.
+# One probe against a single target, sourced from the cable interface
+# address. OPNsense's default "force gw" rule (let out anything from firewall
+# host itself) then sends it through the cable gateway regardless of the
+# routing table, so the result reflects the cable line even during failover.
+# Prints the number of replies.
+probe_one()
+{
+	_t="$1"
+	_s="$2"
+	_added=0
+	if [ "${GW_FORCE_GW}" != "1" ] && [ -n "${GW_ADDR}" ]; then
+		# force gw rule disabled by the user: fall back to a temporary host route
+		_rif=$(route -n get -inet "${_t}" 2>/dev/null | awk '$1 == "interface:" { print $2 }')
+		if [ "${_rif}" != "${GW_DEVICE}" ] &&
+		    route -q -n add -inet -host "${_t}" "${GW_ADDR}" >/dev/null 2>&1; then
+			_added=1
+		fi
+	fi
+	_o=$(ping -n -q -c "${FF_PING_COUNT}" -W "$((FF_PING_TIMEOUT * 1000))" \
+	    -t "$((FF_PING_COUNT * FF_PING_TIMEOUT + 1))" -S "${_s}" "${_t}" 2>&1)
+	if [ "${_added}" = "1" ]; then
+		route -q -n delete -inet -host "${_t}" "${GW_ADDR}" >/dev/null 2>&1
+	fi
+	_r=$(printf '%s\n' "${_o}" | sed -n 's/.* \([0-9][0-9]*\) packets received.*/\1/p' | head -n 1)
+	echo "${_r:-0}"
+}
+
+# Pings all test addresses in parallel. The line counts as reachable as soon
+# as one address answers; it only counts as dead when none answers.
 probe_ping()
 {
 	PING_OK=0
-	_target="${FF_GOOD_MONITOR}"
-
+	if [ "${USE_PING}" != "1" ]; then
+		PING_TEXT="not used"
+		return 0
+	fi
+	if [ -z "${FF_PROBE_TARGETS}" ]; then
+		PING_TEXT="no test addresses configured"
+		return 1
+	fi
 	if [ -z "${GW_DEVICE}" ] || ! ifconfig "${GW_DEVICE}" >/dev/null 2>&1; then
 		PING_TEXT="interface '${GW_DEVICE}' not found"
 		return 1
 	fi
-
 	_src=$(ifconfig "${GW_DEVICE}" inet 2>/dev/null | awk '$1 == "inet" { print $2; exit }')
 	if [ -z "${_src}" ]; then
 		PING_TEXT="no IPv4 address on ${GW_DEVICE}"
 		return 1
 	fi
 
-	_added=0
-	_rif=$(route -n get -inet "${_target}" 2>/dev/null | awk '$1 == "interface:" { print $2 }')
-	if [ "${_rif}" != "${GW_DEVICE}" ] && [ -n "${GW_ADDR}" ]; then
-		if route -q -n add -inet -host "${_target}" "${GW_ADDR}" >/dev/null 2>&1; then
-			_added=1
-		fi
-	fi
+	_dir=$(mktemp -d "${RUNDIR}/fritzfailover.XXXXXX") || return 1
+	_i=0
+	for _t in ${FF_PROBE_TARGETS}; do
+		_i=$((_i + 1))
+		probe_one "${_t}" "${_src}" > "${_dir}/${_i}" &
+	done
+	wait
 
-	_wait_ms=$((FF_PING_TIMEOUT * 1000))
-	_total=$((FF_PING_COUNT * FF_PING_TIMEOUT + 1))
-	_out=$(ping -n -q -c "${FF_PING_COUNT}" -W "${_wait_ms}" -t "${_total}" \
-	    -S "${_src}" "${_target}" 2>&1)
-	_rc=$?
-
-	if [ "${_added}" = "1" ]; then
-		route -q -n delete -inet -host "${_target}" "${GW_ADDR}" >/dev/null 2>&1
-	fi
-
-	_rx=$(printf '%s\n' "${_out}" | sed -n 's/.* \([0-9][0-9]*\) packets received.*/\1/p' | head -n 1)
-	_rx=${_rx:-0}
-	if [ "${_rc}" -eq 0 ] && [ "${_rx}" -gt 0 ]; then
+	_i=0
+	_up=0
+	PING_TEXT=""
+	for _t in ${FF_PROBE_TARGETS}; do
+		_i=$((_i + 1))
+		_rx=$(cat "${_dir}/${_i}" 2>/dev/null)
+		is_uint "${_rx}" || _rx=0
+		[ "${_rx}" -gt 0 ] && _up=$((_up + 1))
+		PING_TEXT="${PING_TEXT}${PING_TEXT:+, }${_t} ${_rx}/${FF_PING_COUNT}"
+	done
+	rm -rf "${_dir}"
+	PING_TEXT="${PING_TEXT} (via ${GW_DEVICE}, source ${_src})"
+	if [ "${_up}" -gt 0 ]; then
 		PING_OK=1
-		PING_TEXT="${_rx}/${FF_PING_COUNT} replies from ${_target} via ${GW_DEVICE}"
 		return 0
 	fi
-	PING_TEXT="0/${FF_PING_COUNT} replies from ${_target} via ${GW_DEVICE}"
 	return 1
+}
+
+# Combines both checks into fail|ok|unknown.
+#   fail:    FRITZ!Box reports no connection, or no test address answers
+#   ok:      nothing failed and at least one check positively confirmed it
+#   unknown: nothing failed but nothing confirmed either (e.g. TR-064 login
+#            broken in "FRITZ!Box only" mode); counters stay untouched
+evaluate()
+{
+	if [ "${USE_TR064}" = "1" ] && [ "${TR_STATE}" = "down" ]; then
+		echo fail
+	elif [ "${USE_PING}" = "1" ] && [ "${PING_OK}" != "1" ]; then
+		echo fail
+	elif [ "${USE_PING}" = "1" ] || [ "${TR_STATE}" = "up" ]; then
+		echo ok
+	else
+		echo unknown
+	fi
 }
 
 # Only the dpinger instance of the cable gateway is restarted with the new
@@ -270,9 +328,10 @@ apply_monitor()
 	fi
 	/usr/local/sbin/pluginctl -c monitor "${FF_GATEWAY}" >/dev/null 2>&1
 	# drop the stale host route of the previous monitor IP via the cable gateway
-	if [ -n "${_old}" ] && [ "${_old}" != "${_new}" ] && [ -n "${GW_ADDR}" ]; then
+	if [ -n "${_old}" ] && [ "${_old}" != "${_new}" ] && [ -n "${GW_ADDR}" ] &&
+	    [ "${_old}" != "${GW_ADDR}" ]; then
 		_rgw=$(route -n get -inet "${_old}" 2>/dev/null | awk '$1 == "gateway:" { print $2 }')
-		if [ "${_rgw}" = "${GW_ADDR}" ] && [ "${_old}" != "${GW_ADDR}" ]; then
+		if [ "${_rgw}" = "${GW_ADDR}" ]; then
 			route -q -n delete -inet -host "${_old}" "${GW_ADDR}" >/dev/null 2>&1
 		fi
 	fi
@@ -314,14 +373,18 @@ run_check()
 	tr064_check
 	probe_ping
 
-	_healthy=0
-	if [ "${PING_OK}" = "1" ] && [ "${TR_STATE}" != "down" ]; then
-		_healthy=1
-	fi
+	_result=$(evaluate)
 
-	if [ "${GW_MONITOR}" = "${FF_BAD_MONITOR}" ]; then
+	if [ "${_result}" = "unknown" ]; then
+		MESSAGE="FRITZ!Box status unavailable (${TR_TEXT}), no decision possible"
+		if [ "${GW_MONITOR}" = "${FF_BAD_MONITOR}" ]; then
+			_status="failover"
+		else
+			_status="ok"
+		fi
+	elif [ "${GW_MONITOR}" = "${FF_BAD_MONITOR}" ]; then
 		FAILS=0
-		if [ "${_healthy}" = "1" ]; then
+		if [ "${_result}" = "ok" ]; then
 			OKS=$((OKS + 1))
 			_status="recovering"
 			if [ "${OKS}" -ge "${FF_RECOVER_THRESHOLD}" ]; then
@@ -338,7 +401,7 @@ run_check()
 		fi
 	else
 		OKS=0
-		if [ "${_healthy}" = "1" ]; then
+		if [ "${_result}" = "ok" ]; then
 			FAILS=0
 			_status="ok"
 		else
@@ -389,16 +452,25 @@ do_test()
 	fi
 	tr064_check
 	probe_ping
+	_result=$(evaluate)
 	_res="failed"
-	if [ "${PING_OK}" = "1" ] && [ "${TR_STATE}" != "down" ]; then
+	case "${_result}" in
+	ok)
 		_res="ok"
+		MESSAGE="The cable line works."
+		;;
+	fail)
+		MESSAGE="The cable line does not work right now."
+		;;
+	*)
+		MESSAGE="No decision possible: the FRITZ!Box status could not be read."
+		;;
+	esac
+	if [ "${GW_FORCE_GW}" != "1" ]; then
+		MESSAGE="${MESSAGE} Note: 'Disable force gateway' is set in Firewall > Settings > Advanced, test pings use temporary host routes."
 	fi
 	if [ "${GW_MONITOR}" = "${FF_BAD_MONITOR}" ]; then
-		MESSAGE="Failover is currently active."
-	elif [ "${_res}" = "ok" ]; then
-		MESSAGE="Everything looks fine."
-	else
-		MESSAGE="The cable line does not look healthy right now."
+		MESSAGE="${MESSAGE} Failover is currently active."
 	fi
 	printf '{"status":"%s","gateway":"%s","device":"%s","monitor":"%s","tr064":"%s","ping":"%s","message":"%s"}\n' \
 	    "${_res}" "$(json_escape "${FF_GATEWAY}")" "$(json_escape "${GW_DEVICE}")" \

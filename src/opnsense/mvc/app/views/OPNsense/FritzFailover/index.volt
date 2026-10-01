@@ -122,7 +122,7 @@ POSSIBILITY OF SUCH DAMAGE.
 <div class="content-box">
     <div class="col-md-12">
         <div class="alert alert-info" role="alert" style="margin-top: 1em;">
-            {{ lang._('Quick start: 1) Create a gateway group with the cable gateway as Tier 1 and your backup (5G/LTE) gateway as Tier 2 and use it in your LAN firewall rules. 2) Fill in the fields below. 3) Click "Test connection", then "Apply". The plugin never disables your gateway, it only changes its monitor IP.') }}
+            {{ lang._('Quick start: 1) Create a gateway group with the cable gateway as Tier 1 and your backup (5G/LTE) gateway as Tier 2 and use it in your LAN firewall rules. 2) Set the monitor IP of the cable gateway to the FRITZ!Box address (e.g. 192.168.0.1). 3) Fill in the fields below, click "Test connection", then "Apply". The plugin never disables your gateway, it only changes its monitor IP when the cable line is really dead.') }}
         </div>
     </div>
     {{ partial("layout_partials/base_form", ['fields': generalForm, 'id': 'frm_general']) }}
