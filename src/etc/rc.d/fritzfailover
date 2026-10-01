@@ -1,0 +1,29 @@
+#!/bin/sh
+#
+# PROVIDE: fritzfailover
+# REQUIRE: NETWORKING configd
+# KEYWORD: shutdown
+#
+
+. /etc/rc.subr
+
+name="fritzfailover"
+rcvar="fritzfailover_enable"
+
+load_rc_config $name
+
+: ${fritzfailover_enable:="NO"}
+
+script="/usr/local/opnsense/scripts/OPNsense/FritzFailover/fritzbox_failover.sh"
+pidfile="/var/run/${name}.pid"
+command="/usr/sbin/daemon"
+command_args="-f -r -R 10 -P ${pidfile} -t ${name} ${script} run"
+procname="daemon"
+stop_postcmd="${name}_poststop"
+
+fritzfailover_poststop()
+{
+	${script} restore
+}
+
+run_rc_command "$1"

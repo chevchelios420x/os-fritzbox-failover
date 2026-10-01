@@ -1,0 +1,5 @@
+{% if helpers.exists('OPNsense.FritzFailover.enabled') and OPNsense.FritzFailover.enabled == '1' %}
+fritzfailover_enable="YES"
+{% else %}
+fritzfailover_enable="NO"
+{% endif %}

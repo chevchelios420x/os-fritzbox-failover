@@ -1,0 +1,5 @@
+<menu>
+    <Services>
+        <FritzFailover VisibleName="FRITZ!Box Failover" cssClass="fa fa-random fa-fw" url="/ui/fritzfailover"/>
+    </Services>
+</menu>

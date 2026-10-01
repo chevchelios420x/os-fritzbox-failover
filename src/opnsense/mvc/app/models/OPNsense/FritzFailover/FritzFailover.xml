@@ -1,0 +1,93 @@
+<model>
+    <mount>//OPNsense/FritzFailover</mount>
+    <version>1.0.0</version>
+    <description>FRITZ!Box Cable WAN failover settings</description>
+    <items>
+        <enabled type="BooleanField">
+            <Default>0</Default>
+            <Required>Y</Required>
+        </enabled>
+        <fritzbox_ip type="NetworkField">
+            <Default>192.168.0.1</Default>
+            <Required>Y</Required>
+            <NetMaskAllowed>N</NetMaskAllowed>
+            <AddressFamily>ipv4</AddressFamily>
+            <ValidationMessage>Please enter a valid IPv4 address, e.g. 192.168.0.1.</ValidationMessage>
+        </fritzbox_ip>
+        <tr064_enabled type="BooleanField">
+            <Default>1</Default>
+            <Required>Y</Required>
+        </tr064_enabled>
+        <tr064_port type="PortField">
+            <Default>49000</Default>
+            <Required>Y</Required>
+        </tr064_port>
+        <tr064_username type="TextField">
+            <Mask>/^[a-zA-Z0-9._@\-]{0,64}$/</Mask>
+            <ValidationMessage>The username may only contain letters, digits and . _ @ - (max. 64 characters).</ValidationMessage>
+        </tr064_username>
+        <tr064_password type="TextField">
+            <Mask>/^[^\x00-\x1f\x7f]{0,128}$/</Mask>
+            <ValidationMessage>The password must not contain control characters (max. 128 characters).</ValidationMessage>
+        </tr064_password>
+        <gateway type="TextField">
+            <Default>WAN_CABLE_GW</Default>
+            <Required>Y</Required>
+            <Mask>/^[a-zA-Z0-9_]{1,32}$/</Mask>
+            <ValidationMessage>Gateway names consist of letters, digits and underscores only (max. 32 characters).</ValidationMessage>
+        </gateway>
+        <interface type="InterfaceField">
+            <Required>N</Required>
+            <BlankDesc>Automatic (use the gateway's interface)</BlankDesc>
+        </interface>
+        <good_monitor type="NetworkField">
+            <Default>9.9.9.9</Default>
+            <Required>Y</Required>
+            <NetMaskAllowed>N</NetMaskAllowed>
+            <AddressFamily>ipv4</AddressFamily>
+            <ValidationMessage>Please enter a valid IPv4 address, e.g. 9.9.9.9.</ValidationMessage>
+        </good_monitor>
+        <bad_monitor type="NetworkField">
+            <Default>192.0.2.1</Default>
+            <Required>Y</Required>
+            <NetMaskAllowed>N</NetMaskAllowed>
+            <AddressFamily>ipv4</AddressFamily>
+            <ValidationMessage>Please enter a valid IPv4 address, e.g. 192.0.2.1.</ValidationMessage>
+        </bad_monitor>
+        <ping_count type="IntegerField">
+            <Default>2</Default>
+            <Required>Y</Required>
+            <MinimumValue>1</MinimumValue>
+            <MaximumValue>10</MaximumValue>
+            <ValidationMessage>Choose a value between 1 and 10.</ValidationMessage>
+        </ping_count>
+        <ping_timeout type="IntegerField">
+            <Default>2</Default>
+            <Required>Y</Required>
+            <MinimumValue>1</MinimumValue>
+            <MaximumValue>10</MaximumValue>
+            <ValidationMessage>Choose a value between 1 and 10 seconds.</ValidationMessage>
+        </ping_timeout>
+        <fail_threshold type="IntegerField">
+            <Default>3</Default>
+            <Required>Y</Required>
+            <MinimumValue>1</MinimumValue>
+            <MaximumValue>30</MaximumValue>
+            <ValidationMessage>Choose a value between 1 and 30.</ValidationMessage>
+        </fail_threshold>
+        <recover_threshold type="IntegerField">
+            <Default>3</Default>
+            <Required>Y</Required>
+            <MinimumValue>1</MinimumValue>
+            <MaximumValue>30</MaximumValue>
+            <ValidationMessage>Choose a value between 1 and 30.</ValidationMessage>
+        </recover_threshold>
+        <check_interval type="IntegerField">
+            <Default>10</Default>
+            <Required>Y</Required>
+            <MinimumValue>5</MinimumValue>
+            <MaximumValue>300</MaximumValue>
+            <ValidationMessage>Choose a value between 5 and 300 seconds.</ValidationMessage>
+        </check_interval>
+    </items>
+</model>

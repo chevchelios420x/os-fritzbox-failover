@@ -1,0 +1,9 @@
+<acl>
+    <page-services-fritzfailover>
+        <name>Services: FRITZ!Box Failover</name>
+        <patterns>
+            <pattern>ui/fritzfailover/*</pattern>
+            <pattern>api/fritzfailover/*</pattern>
+        </patterns>
+    </page-services-fritzfailover>
+</acl>

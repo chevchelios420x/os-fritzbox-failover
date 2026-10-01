@@ -1,0 +1,112 @@
+<form>
+    <field>
+        <type>header</type>
+        <label>General</label>
+    </field>
+    <field>
+        <id>fritzfailover.enabled</id>
+        <label>Enable failover monitor</label>
+        <type>checkbox</type>
+        <help>Turn the FRITZ!Box failover monitor on. When it detects a broken cable line it makes OPNsense switch to your backup gateway (e.g. 5G/LTE) and switches back automatically once the cable line works again.</help>
+    </field>
+    <field>
+        <type>header</type>
+        <label>FRITZ!Box connection</label>
+    </field>
+    <field>
+        <id>fritzfailover.fritzbox_ip</id>
+        <label>FRITZ!Box IP address</label>
+        <type>text</type>
+        <help>The address of your FRITZ!Box as seen from OPNsense. For a Vodafone FRITZ!Box 6660 Cable this is usually 192.168.0.1 (or 192.168.178.1).</help>
+    </field>
+    <field>
+        <id>fritzfailover.tr064_enabled</id>
+        <label>Query line status (TR-064)</label>
+        <type>checkbox</type>
+        <help>Ask the FRITZ!Box via TR-064 whether the internet connection is up. Requires &quot;Allow access for applications&quot; under Home Network &gt; Network &gt; Network Settings on the FRITZ!Box.</help>
+    </field>
+    <field>
+        <id>fritzfailover.tr064_port</id>
+        <label>TR-064 port</label>
+        <type>text</type>
+        <help>TR-064 port of the FRITZ!Box. Leave this at 49000 unless you know what you are doing.</help>
+    </field>
+    <field>
+        <id>fritzfailover.tr064_username</id>
+        <label>TR-064 username</label>
+        <type>text</type>
+        <help>A FRITZ!Box user (System &gt; FRITZ!Box Users). Create a dedicated user, e.g. &quot;opnsense&quot;, with the permission &quot;FRITZ!Box settings&quot;.</help>
+    </field>
+    <field>
+        <id>fritzfailover.tr064_password</id>
+        <label>TR-064 password</label>
+        <type>password</type>
+        <help>Password of the FRITZ!Box user above. It is stored in the OPNsense configuration and never written to log files.</help>
+    </field>
+    <field>
+        <type>header</type>
+        <label>OPNsense gateway</label>
+    </field>
+    <field>
+        <id>fritzfailover.gateway</id>
+        <label>Cable gateway name</label>
+        <type>text</type>
+        <help>Exact name of the cable gateway as shown under System &gt; Gateways &gt; Configuration, e.g. WAN_CABLE_GW or WAN_DHCP. Its monitor IP is changed automatically by this plugin.</help>
+    </field>
+    <field>
+        <id>fritzfailover.interface</id>
+        <label>Cable interface</label>
+        <type>dropdown</type>
+        <help>The OPNsense interface connected to the FRITZ!Box (e.g. WAN on vtnet5). Leave on &quot;Automatic&quot; to use the interface of the gateway above.</help>
+    </field>
+    <field>
+        <type>header</type>
+        <label>Monitor IPs</label>
+    </field>
+    <field>
+        <id>fritzfailover.good_monitor</id>
+        <label>Normal monitor IP</label>
+        <type>text</type>
+        <help>The IP that the gateway monitor pings while everything is fine. Use a reliable public address such as 9.9.9.9 so that real internet outages are detected. Do not use this IP as monitor on any other gateway.</help>
+    </field>
+    <field>
+        <id>fritzfailover.bad_monitor</id>
+        <label>Fake monitor IP (failover)</label>
+        <type>text</type>
+        <help>An address that never answers. When the cable line fails the monitor IP is switched to this one, which makes OPNsense see 100% loss and fail over. 192.0.2.1 (reserved documentation range) is the safe default.</help>
+    </field>
+    <field>
+        <type>header</type>
+        <label>Thresholds and fine tuning</label>
+    </field>
+    <field>
+        <id>fritzfailover.check_interval</id>
+        <label>Check interval (seconds)</label>
+        <type>text</type>
+        <help>How often the cable line is checked. Default: 10 seconds.</help>
+    </field>
+    <field>
+        <id>fritzfailover.ping_count</id>
+        <label>Pings per check</label>
+        <type>text</type>
+        <help>Number of test pings sent through the cable line per check. Default: 2.</help>
+    </field>
+    <field>
+        <id>fritzfailover.ping_timeout</id>
+        <label>Ping timeout (seconds)</label>
+        <type>text</type>
+        <help>How long to wait for each ping answer. Default: 2 seconds.</help>
+    </field>
+    <field>
+        <id>fritzfailover.fail_threshold</id>
+        <label>Failures before failover</label>
+        <type>text</type>
+        <help>Number of failed checks in a row before switching to the backup line. Higher values avoid switching on short hiccups. Default: 3.</help>
+    </field>
+    <field>
+        <id>fritzfailover.recover_threshold</id>
+        <label>Successes before switching back</label>
+        <type>text</type>
+        <help>Number of successful checks in a row before switching back to cable. Prevents flapping while the line is unstable. Default: 3.</help>
+    </field>
+</form>
