@@ -17,7 +17,7 @@ Das Plugin wird als fertiges `.pkg` installiert. Auf der Firewall müssen **kein
 
 Das Gateway wird im Normalbetrieb **gegen die FRITZ!Box** überwacht (stabil, kein Fehlalarm). Ob das Internet hinter der Kabelleitung wirklich funktioniert, entscheidet das Plugin. Dafür prüft es alle paar Sekunden:
 
-1. **Den Status der FRITZ!Box per TR-064**: den Wert `NewConnectionStatus` aus `WANIPConnection:1` → `GetStatusInfo`. Er erkennt, wenn die Box ihre Verbindung verliert (Kabel-Sync weg, keine IP-Adresse mehr). Einen gestörten Vodafone-Backbone erkennt er **nicht**, weil die Box dann weiter „Connected“ meldet.
+1. **Den Status der FRITZ!Box**: den Wert `NewConnectionStatus` aus `WANIPConnection:1` → `GetStatusInfo`, wahlweise per UPnP ohne Anmeldung (empfohlen) oder per TR-064 mit eigenem FRITZ!Box-Benutzer. Er erkennt, wenn die Box ihre Verbindung verliert (Kabel-Sync weg, keine IP-Adresse mehr). Einen gestörten Vodafone-Backbone erkennt er **nicht**, weil die Box dann weiter „Connected“ meldet.
 2. **Einen Internet-Test über die Kabelleitung**: Ping an mehrere Adressen gleichzeitig (Standard `9.9.9.9`, `1.1.1.1`, `8.8.8.8`), mit der Adresse der Kabel-Schnittstelle als Absender. Die OPNsense-Regel „let out anything from firewall host itself (force gw)“ schickt diese Pings immer über das Kabel-Gateway, auch während des Failovers. Für jeden Test wird ein neuer Ping-Prozess gestartet. Die Leitung gilt erst als tot, wenn **keine** Adresse antwortet.
 
 Welche Prüfungen benutzt werden, stellst du in der GUI ein: beide (empfohlen), nur die FRITZ!Box oder nur der Ping.
@@ -59,16 +59,22 @@ fetch -o /tmp/os-fritzbox-failover.pkg https://github.com/chevchelios420x/os-fri
 
 Danach die Weboberfläche neu laden. Das Plugin erscheint unter **Dienste → FRITZ!Box Failover** und in **System → Firmware → Plugins** als installiert.
 
-Updates: denselben Befehl erneut ausführen.
-Deinstallieren: `pkg delete os-fritzbox-failover`
+Updates: denselben Befehl erneut ausführen. Ein laufender Failover bleibt dabei erhalten, der Dienst wird danach automatisch neu gestartet.
+Deinstallieren: `pkg delete os-fritzbox-failover`. Dabei wird der Dienst gestoppt und die normale Monitor-IP zurückgesetzt.
 
 ---
 
 ## Einrichtung
 
 ### 1. FRITZ!Box vorbereiten
-- **Heimnetz → Netzwerk → Netzwerkeinstellungen → „Zugriff für Anwendungen zulassen“** aktivieren (TR-064).
-- **System → FRITZ!Box-Benutzer**: eigenen Benutzer anlegen, z. B. `opnsense`, mit Recht „FRITZ!Box Einstellungen“.
+
+**Empfohlen, ohne Passwort:** unter **Heimnetz → Netzwerk → Netzwerkeinstellungen** die Option **„Statusinformationen über UPnP übertragen“** aktivieren. Das Plugin liest den Verbindungsstatus dann ohne Anmeldung. Auf der OPNsense wird kein FRITZ!Box-Passwort gespeichert.
+
+**Nur falls das nicht geht, per TR-064:**
+- **Heimnetz → Netzwerk → Netzwerkeinstellungen → „Zugriff für Anwendungen zulassen“** aktivieren.
+- **System → FRITZ!Box-Benutzer**: einen **eigenen** Benutzer nur für die OPNsense anlegen, nicht dein eigenes Konto. Zuerst ohne Zusatzrechte anlegen und mit „Verbindung testen“ prüfen. Nur wenn das nicht reicht, Rechte schrittweise ergänzen. Welches Recht die Abfrage mindestens braucht, ist nicht geprüft.
+- Das Passwort steht im Klartext in der OPNsense-Konfiguration (wie alle Passwörter dort) und damit auch in jedem Konfigurations-Backup.
+- Nach einer fehlgeschlagenen Anmeldung pausiert das Plugin TR-064 für 15 Minuten, damit die FRITZ!Box die Anmeldung nicht sperrt. In der Zeit nutzt es UPnP, falls aktiviert.
 
 ### 2. OPNsense vorbereiten
 - **System → Gateways → Konfiguration**: Kabel-Gateway (z. B. `WAN_CABLE_GW` oder `WAN_DHCP`) und Backup-Gateway (5G/LTE) müssen vorhanden sein, **Monitoring aktiviert**.
@@ -83,7 +89,7 @@ Deinstallieren: `pkg delete os-fritzbox-failover`
 |---|---|---|
 | FRITZ!Box IP-Adresse | `192.168.0.1` | Adresse der FRITZ!Box aus Sicht der OPNsense |
 | Erkennung | FRITZ!Box + Ping | wie ein Ausfall erkannt wird (siehe oben) |
-| TR-064 Benutzer / Passwort | – | der in Schritt 1 angelegte Benutzer |
+| TR-064 Benutzer / Passwort | leer | optional; leer = Status per UPnP ohne Anmeldung |
 | Kabel-Gateway-Name | `WAN_CABLE_GW` | exakt wie unter System → Gateways |
 | Kabel-Schnittstelle | Automatisch | z. B. WAN (`vtnet5`); automatisch = Schnittstelle des Gateways |
 | Normale Monitor-IP | `192.168.0.1` | die FRITZ!Box, gleiche Adresse wie das Gateway |
@@ -97,13 +103,40 @@ Deinstallieren: `pkg delete os-fritzbox-failover`
 
 Dann **„Verbindung testen“** klicken und anschließend **„Übernehmen“**. Der Testmodus ist anfangs an, siehe oben. Der Status oben auf der Seite zeigt live, was das Plugin sieht. Meldungen landen im Systemlog (Tag `fritzfailover`).
 
-Wird der Dienst gestoppt oder deaktiviert, setzt das Plugin die normale Monitor-IP automatisch zurück.
+### Verhalten bei Neustart, Deaktivieren und Deinstallieren
+
+| Situation | Was mit einem aktiven Failover passiert |
+|---|---|
+| „Übernehmen“, Dienst-Neustart, Reboot, Update | **bleibt erhalten**. Der Dienst setzt nach dem Start fort und schaltet erst zurück, wenn die Kabelleitung wirklich wieder gesund ist. |
+| Plugin deaktivieren, Testmodus einschalten | normale Monitor-IP wird zurückgesetzt, OPNsense schaltet zurück aufs Kabel |
+| Plugin deinstallieren | normale Monitor-IP wird zurückgesetzt |
+| Dienst nur gestoppt (Plugin bleibt aktiv) | **bleibt erhalten** (Internet läuft weiter über das Backup). Die Statusseite zeigt das an. |
+
+Mit dem Button **„Normale Monitor-IP wiederherstellen“** auf der Statusseite setzt du die normale Monitor-IP jederzeit sofort zurück.
+
+Nach einem Neustart der OPNsense misst das Plugin die ersten 2 Minuten nur und schaltet nicht um. So löst eine noch nicht fertige WAN-Verbindung beim Booten keinen Failover aus.
+
+Umschaltungen werden ohne Eintrag in der Konfigurations-Historie gespeichert, damit eine flappende Leitung deine echten Backups nicht aus der Historie verdrängt. Jede Umschaltung steht im Systemlog (Tag `fritzfailover`).
+
+### Notfall per SSH
+
+```sh
+# normale Monitor-IP sofort zurücksetzen
+/usr/local/opnsense/scripts/OPNsense/FritzFailover/fritzbox_failover.sh restore
+
+# Plugin komplett entfernen (setzt die Monitor-IP ebenfalls zurück)
+pkg delete -y os-fritzbox-failover
+```
+
+Das Plugin ändert nichts an LAN, Firewall-Regeln, Web-GUI oder SSH. Die OPNsense bleibt aus dem LAN immer erreichbar.
 
 ---
 
 ## Selbst bauen / Release erstellen
 
 Bei jedem Tag `vX.Y` (oder GitHub-Release) baut `.github/workflows/release.yml` das Paket in einer FreeBSD-14-VM mit dem offiziellen [opnsense/plugins](https://github.com/opnsense/plugins)-Build-System (`make package`) und hängt `os-fritzbox-failover-X.Y.pkg` sowie `os-fritzbox-failover.pkg` an das Release.
+
+Das Build-System ist auf den Stand `26.1.11` gepinnt, alle GitHub Actions auf feste Commit-IDs. Für eine neue OPNsense-Version `PLUGINS_TAG` und `PLUGINS_COMMIT` im Workflow bewusst anheben.
 
 ```sh
 tools/release.sh 1.1

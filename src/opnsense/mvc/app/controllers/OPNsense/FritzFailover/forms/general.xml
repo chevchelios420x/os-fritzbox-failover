@@ -13,13 +13,13 @@
         <id>fritzfailover.dry_run</id>
         <label>Test mode (dry run)</label>
         <type>checkbox</type>
-        <help>Runs all checks and records every lost ping per test address, but NEVER changes anything on OPNsense. The status shows what the plugin would have done (&quot;would fail over&quot;). Leave this on for a few days to see whether the test addresses also suffer from the timeouts you see with dpinger, then switch it off to activate the failover.</help>
+        <help>Runs all checks and records every lost ping per test address, but NEVER changes anything on OPNsense. The status shows what the plugin would have done (&quot;would fail over&quot;). Leave this on for a few days to see whether the test addresses also suffer from the timeouts you see with dpinger, then switch it off to activate the failover. Switching test mode on also restores the normal monitor IP if a real failover is active.</help>
     </field>
     <field>
         <id>fritzfailover.check_mode</id>
         <label>How to detect a dead cable line</label>
         <type>dropdown</type>
-        <help>&quot;FRITZ!Box status&quot; asks the FRITZ!Box whether it has an internet connection. It notices a lost cable sync or a lost IP address, but NOT a Vodafone backbone outage (the FRITZ!Box keeps saying &quot;Connected&quot; then). The &quot;internet ping check&quot; additionally pings the test addresses below directly through the cable line and detects such outages. Recommended: both.</help>
+        <help>&quot;FRITZ!Box status&quot; reads whether the FRITZ!Box has an internet connection. It notices a lost cable sync or a lost IP address, but NOT a Vodafone backbone outage (the FRITZ!Box keeps saying &quot;Connected&quot; then). The &quot;internet ping check&quot; additionally pings the test addresses below directly through the cable line and detects such outages. Recommended: both.</help>
     </field>
     <field>
         <type>header</type>
@@ -33,21 +33,21 @@
     </field>
     <field>
         <id>fritzfailover.tr064_port</id>
-        <label>TR-064 port</label>
+        <label>TR-064 / UPnP port</label>
         <type>text</type>
-        <help>TR-064 port of the FRITZ!Box. Leave this at 49000 unless you know what you are doing.</help>
+        <help>Port of the FRITZ!Box for TR-064 and UPnP status requests. Leave this at 49000.</help>
     </field>
     <field>
         <id>fritzfailover.tr064_username</id>
-        <label>TR-064 username</label>
+        <label>TR-064 username (optional)</label>
         <type>text</type>
-        <help>A FRITZ!Box user (System &gt; FRITZ!Box Users). Create a dedicated user, e.g. &quot;opnsense&quot;, with the permission &quot;FRITZ!Box settings&quot;.</help>
+        <help>Leave empty (recommended) to read the status via UPnP without any login: enable &quot;Transmit status information over UPnP&quot; on the FRITZ!Box (Home Network &gt; Network &gt; Network Settings). Only if that is not possible, enter a dedicated FRITZ!Box user for TR-064 (&quot;Allow access for applications&quot; must be enabled); after a failed login, TR-064 is paused for 15 minutes to avoid a FRITZ!Box login lockout.</help>
     </field>
     <field>
         <id>fritzfailover.tr064_password</id>
-        <label>TR-064 password</label>
+        <label>TR-064 password (optional)</label>
         <type>password</type>
-        <help>Password of the FRITZ!Box user above. It is stored in the OPNsense configuration and never written to log files.</help>
+        <help>Password of the TR-064 user above. It is stored in the OPNsense configuration (like all passwords there) and never written to log files.</help>
     </field>
     <field>
         <type>header</type>

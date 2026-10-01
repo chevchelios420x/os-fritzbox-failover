@@ -1,4 +1,4 @@
-# Audit os-fritzbox-failover 1.0
+# Audit os-fritzbox-failover 1.0 (mit Stand der Behebung in 1.1)
 
 Stand: Commit `b434733` auf `main`, Release v1.0 (`os-fritzbox-failover-1.0.pkg`).
 Zielsystem: OPNsense 26.1.11_10 (FreeBSD 14.3, VM auf Proxmox mit VirtIO), FRITZ!Box 6660 Cable mit FRITZ!OS 8.25.
@@ -14,7 +14,34 @@ Zielsystem: OPNsense 26.1.11_10 (FreeBSD 14.3, VM auf Proxmox mit VirtIO), FRITZ
 
 ---
 
-## Kurzfazit
+## Stand der Behebung (Version 1.1)
+
+Die Befunde unten beschreiben Version 1.0. In Version 1.1 wurde Folgendes geändert. Die neue Logik wurde wieder mit nachgebauten Programmen getestet, nicht auf echter Hardware.
+
+| Befund | Status in 1.1 | Was geändert wurde |
+|---|---|---|
+| H1 „Verbindung testen“ kaputt | **behoben** | Aufruf von `sessionClose()` entfernt. |
+| H2 Deinstallation hinterlässt tote Monitor-IP | **behoben** | Neues Paket-Skript `+PRE_DEINSTALL.pre`: stoppt den Dienst; bei echter Deinstallation wird die normale Monitor-IP zurückgesetzt, bei einem Update (`PKG_UPGRADE=true`) bleibt ein Failover erhalten. `+POST_INSTALL.post` startet den Dienst nach Installation oder Update neu, wenn er aktiviert ist. Der Workflow prüft, dass das Skript im Paket ist. |
+| H3 Rückschaltung aufs tote Kabel bei „Übernehmen“/Reboot | **behoben** | Der Stopp-Haken setzt die Monitor-IP nur noch zurück, wenn das Plugin deaktiviert oder der Testmodus an ist. Bei einem reinen Neustart bleibt der Failover erhalten. Neuer Button „Normale Monitor-IP wiederherstellen“ für den manuellen Fall. |
+| M1 Konfiguration ohne Sperre geschrieben | **behoben** | `Config::getInstance()->lock()` vor dem Laden, wie in den Core-Controllern. |
+| M2 Dauer-Fehlanmeldungen an der FRITZ!Box | **behoben** | Nach einer abgelehnten TR-064-Anmeldung pausiert TR-064 für 15 Minuten (UPnP läuft weiter). „Verbindung testen“ versucht es trotzdem sofort; ein Neustart des Dienstes hebt die Pause auf. |
+| M3 FRITZ!Box-Benutzer mit Admin-Rechten | **entschärft** | TR-064-Login ist jetzt optional. Ohne Login liest das Plugin den Status per UPnP, ganz ohne Passwort; das ist jetzt die empfohlene Einrichtung. Für TR-064 empfiehlt das README einen eigenen Benutzer ohne Zusatzrechte. Offen: welches Recht TR-064 mindestens braucht. |
+| M4 Fehl-Failover nach dem Booten | **behoben** | In den ersten 120 s nach dem Booten wird nur gemessen, nicht umgeschaltet (Status „Starting up“). |
+| M5 Lieferkette des Builds | **behoben** | Alle Actions auf feste Commit-IDs gepinnt; `opnsense/plugins` auf Tag `26.1.11` gepinnt und die Commit-ID geprüft. Bleibt: Paket unsigniert, Zwei-Faktor-Anmeldung auf GitHub ist Pflicht. |
+| N1 Einträge in der Konfigurations-Historie | **behoben** | Umschaltungen werden ohne Backup-Eintrag gespeichert; im Systemlog stehen sie weiter. |
+| N2 IP-Felder akzeptieren „any“ | **behoben** | `WildcardEnabled N` in allen vier Feldern. |
+| N3 Veralteter Status | **behoben** | Ist die Konfiguration nicht lesbar, wird der Status „unknown“ mit Hinweis geschrieben. |
+| N4 Viel Log bei Ausfall | **behoben** | Während eines (auch simulierten) Failovers werden verlorene Pings nicht mehr einzeln geloggt; die Statistik zählt weiter. |
+| N5 Vorhandene Monitor-IP wird überschrieben | **entschärft** | „Verbindung testen“ weist darauf hin, wenn das Gateway gerade eine andere Monitor-IP hat. Gewolltes Verhalten bleibt. |
+| N6 Zähler aus dem Testmodus | **behoben** | Zähler werden bei jedem Start des Dienstes zurückgesetzt (ein Moduswechsel braucht „Übernehmen“, also einen Neustart). |
+| N7 Stoppen dauert bis 60 s | **verbessert** | Die Prüfung läuft im Hintergrund, der Dienst beendet sich sofort. Eine laufende Prüfung (max. ca. 17 s) wird noch zu Ende geführt. |
+| N8 TR-064 über HTTP | **bewusst nicht geändert** | Digest schützt das Passwort; übertragen wird nur der Verbindungsstatus, auf der Direktstrecke zur FRITZ!Box. HTTPS mit dem selbstsignierten Zertifikat der Box brächte kaum Gewinn. Mit UPnP ohne Login entfällt das Passwort ganz. |
+
+**Neue Einschätzung für 1.1:** Betrieb im echten Modus ist vertretbar, nachdem du ein paar Tage im Testmodus beobachtet hast. Vorher zur Sicherheit „Verbindung testen“ benutzen und prüfen, dass Status und Pings stimmen.
+
+---
+
+## Kurzfazit (Version 1.0)
 
 | Frage | Einschätzung |
 |---|---|
@@ -187,20 +214,20 @@ Das Plugin ändert nur die Monitor-IP des Kabel-Gateways. Die realistisch schlim
 | Gleichzeitige GUI-Änderung verloren (M1) | Eine Einstellung fehlt | Erneut speichern, oder unter System → Konfiguration → Historie vergleichen. |
 | Plugin-Fehler, GUI-Seite lädt nicht | Nur das Plugin betroffen | Per SSH: `configctl fritzfailover stop` oder `pkg delete os-fritzbox-failover`. |
 
-Notfall per SSH (Menüpunkt 8, Shell):
+Notfall per SSH (Menüpunkt 8, Shell), ab Version 1.1:
 
 ```sh
-# Dienst stoppen (setzt die normale Monitor-IP zurück)
-/usr/local/etc/rc.d/fritzfailover onestop
+# normale Monitor-IP sofort zurücksetzen (wirkt immer, auch im Failover)
+/usr/local/opnsense/scripts/OPNsense/FritzFailover/fritzbox_failover.sh restore
 
-# Plugin komplett entfernen
+# Plugin komplett entfernen (stoppt den Dienst und setzt die Monitor-IP zurück)
 pkg delete -y os-fritzbox-failover
 
 # Prüfen, welche Monitor-IP das Kabel-Gateway gerade hat
 grep -A30 "<name>WAN_CABLE_GW</name>" /conf/config.xml | grep monitor
 ```
 
-Steht danach noch `192.0.2.1` drin: in der GUI unter System → Gateways korrigieren. Oder unter System → Konfiguration → Historie eine Version von vor der Umschaltung wiederherstellen.
+Steht danach noch `192.0.2.1` drin: in der GUI unter System → Gateways korrigieren.
 
 ---
 

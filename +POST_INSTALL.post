@@ -1,0 +1,9 @@
+#!/bin/sh
+
+# (Re)start the failover monitor after an install or update if it is enabled.
+RCD=/usr/local/etc/rc.d/fritzfailover
+
+if [ -x "${RCD}" ] && "${RCD}" enabled; then
+	echo "Restarting FRITZ!Box failover monitor"
+	"${RCD}" restart >/dev/null 2>&1 || :
+fi

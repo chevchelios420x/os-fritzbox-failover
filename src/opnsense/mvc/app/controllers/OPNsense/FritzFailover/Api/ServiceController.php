@@ -57,6 +57,19 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
+     * restore the normal monitor IP of the cable gateway right now
+     * @return array
+     */
+    public function restoreAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['status' => 'failed', 'message' => 'POST required'];
+        }
+        (new Backend())->configdRun('fritzfailover restore');
+        return ['status' => 'ok'];
+    }
+
+    /**
      * reset the per test address statistics
      * @return array
      */
@@ -78,7 +91,6 @@ class ServiceController extends ApiMutableServiceControllerBase
         if (!$this->request->isPost()) {
             return ['status' => 'failed', 'message' => 'POST required'];
         }
-        $this->sessionClose();
         $response = trim((new Backend())->configdRun('fritzfailover test'));
         $result = json_decode($response, true);
         if (!is_array($result)) {

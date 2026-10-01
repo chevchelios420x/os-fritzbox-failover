@@ -1,6 +1,6 @@
 FRITZ!Box failover helper for OPNsense.
 
-Watches a FRITZ!Box Cable WAN line via TR-064 (WANIPConnection:1
+Watches a FRITZ!Box Cable WAN line via UPnP or TR-064 (WANIPConnection:1
 GetStatusInfo) and pings to several internet addresses forced through
 the cable gateway, while the gateway itself is monitored against the
 FRITZ!Box to avoid false dpinger alarms.
@@ -11,6 +11,19 @@ is healthy again the normal monitor IP is restored.
 
 Plugin Changelog
 ================
+
+1.1
+
+* Restarting the service ("Apply", reboot, update) keeps an active failover
+* Uninstalling stops the service and restores the normal monitor IP
+* FRITZ!Box status via UPnP without login; TR-064 login is optional
+* TR-064 is paused for 15 minutes after a failed login
+* No switching during the first 2 minutes after boot
+* Configuration is locked while the monitor IP is changed
+* Switching no longer adds entries to the configuration history
+* "Restore normal monitor IP" button, fixed "Test connection" on 26.1
+* IP fields no longer accept wildcards
+* Less logging during an outage
 
 1.0
 

@@ -111,10 +111,12 @@ fi
 for FB in 192.168.0.1 192.168.178.1; do
     if ping -c 1 -t 2 "$FB" >/dev/null 2>&1; then
         say INFO "FRITZ!Box antwortet vermutlich unter $FB"
-        if curl -s -o /dev/null --max-time 3 "http://$FB:49000/tr64desc.xml"; then
-            say OK "TR-064 auf $FB:49000 erreichbar"
+        if curl -sf -o /dev/null --max-time 3 "http://$FB:49000/igddesc.xml"; then
+            say OK "UPnP-Status auf $FB erreichbar (Plugin braucht kein FRITZ!Box-Passwort)"
+        elif curl -sf -o /dev/null --max-time 3 "http://$FB:49000/tr64desc.xml"; then
+            say INFO "UPnP-Status aus, TR-064 erreichbar. Empfohlen: in der FRITZ!Box 'Statusinformationen ueber UPnP uebertragen' aktivieren"
         else
-            say WARN "TR-064 auf $FB nicht erreichbar - in der FRITZ!Box 'Zugriff fuer Anwendungen zulassen' aktivieren"
+            say WARN "Weder UPnP noch TR-064 auf $FB erreichbar - in der FRITZ!Box 'Statusinformationen ueber UPnP uebertragen' aktivieren"
         fi
         break
     fi

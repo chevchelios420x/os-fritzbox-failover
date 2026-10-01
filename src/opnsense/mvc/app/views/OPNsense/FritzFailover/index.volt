@@ -32,6 +32,7 @@ POSSIBILITY OF SUCH DAMAGE.
             'degraded': ['label-warning', '{{ lang._("Cable line unstable, counting failures") }}'],
             'failover': ['label-danger', '{{ lang._("Failover active (backup line in use)") }}'],
             'recovering': ['label-info', '{{ lang._("Cable line back, waiting before switching back") }}'],
+            'starting': ['label-info', '{{ lang._("Starting up (measuring only)") }}'],
             'stopped': ['label-default', '{{ lang._("Monitor not running") }}'],
             'unknown': ['label-default', '{{ lang._("Unknown") }}']
         };
@@ -90,6 +91,21 @@ POSSIBILITY OF SUCH DAMAGE.
             }
         });
 
+        $('#restoreAct').click(function () {
+            stdDialogConfirm(
+                '{{ lang._("Restore normal monitor IP") }}',
+                '{{ lang._("Set the monitor IP of the cable gateway back to the normal monitor IP now? OPNsense then switches back to the cable line. If the monitor is running and the cable line is still dead, it will fail over again after the configured number of failed checks.") }}',
+                '{{ lang._("Restore") }}',
+                '{{ lang._("Cancel") }}',
+                function () {
+                    ajaxCall('/api/fritzfailover/service/restore', {}, function () {
+                        updateState();
+                    });
+                },
+                'warning'
+            );
+        });
+
         $('#resetStatsAct').click(function () {
             ajaxCall('/api/fritzfailover/service/resetstats', {}, function () {
                 updateState();
@@ -145,6 +161,9 @@ POSSIBILITY OF SUCH DAMAGE.
                 <tr><td>{{ lang._('Info') }}</td><td id="ff_message"></td></tr>
             </tbody>
         </table>
+        <button class="btn btn-default btn-xs" id="restoreAct" type="button">
+            <i class="fa fa-undo fa-fw"></i> {{ lang._('Restore normal monitor IP') }}
+        </button>
         <h2>{{ lang._('Internet test addresses (statistics)') }}</h2>
         <p>{{ lang._('Every lost ping per test address, measured through the cable line. If an address loses pings while the others answer, that address is unreliable as monitor target (e.g. the 9.9.9.9 timeouts). A failed check means no reply at all from this address in that check.') }}</p>
         <table id="ff_targets" class="table table-condensed table-striped">

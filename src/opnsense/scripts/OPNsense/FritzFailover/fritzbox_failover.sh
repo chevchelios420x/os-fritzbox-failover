@@ -30,16 +30,27 @@
 #
 # The cable gateway is normally monitored against the FRITZ!Box itself (stable,
 # no false alarms). This script decides whether the internet behind the cable
-# line really works, using the FRITZ!Box TR-064 status and/or pings sourced
-# from the cable interface. When the line is dead, the gateway monitor IP is
-# switched to an unreachable address so dpinger reports 100% loss and the
-# gateway groups fail over natively; when it is healthy again the normal
-# monitor IP is restored. The gateway itself is never disabled.
+# line really works, using the FRITZ!Box connection status (TR-064 or UPnP)
+# and/or pings sourced from the cable interface. When the line is dead, the
+# gateway monitor IP is switched to an unreachable address so dpinger reports
+# 100% loss and the gateway groups fail over natively; when it is healthy
+# again the normal monitor IP is restored. The gateway itself is never
+# disabled, and nothing but its monitor IP is ever changed.
 #
 # Test mode (dry run): all checks run and every lost ping is recorded per test
 # address, but nothing on OPNsense is changed; the decision is only simulated.
 #
-# usage: fritzbox_failover.sh run|check|test|state|restore|resetstats
+# usage: fritzbox_failover.sh run|check|test|state|stopped|restore|resetstats
+#
+#   run         monitor loop (started by rc.d via daemon(8))
+#   check       single check including the decision
+#   test        single diagnostic check, never changes anything
+#   state       print the last state as JSON
+#   stopped     rc.d post-stop hook: restores the normal monitor IP only if the
+#               plugin no longer manages the gateway (disabled or test mode);
+#               a plain restart keeps an active failover
+#   restore     unconditionally restore the normal monitor IP
+#   resetstats  clear the per test address statistics
 
 set -u
 PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
@@ -50,9 +61,15 @@ RUNDIR="/var/run"
 STATE_FILE="${RUNDIR}/fritzfailover.state"
 COUNTER_FILE="${RUNDIR}/fritzfailover.counters"
 STATS_FILE="${RUNDIR}/fritzfailover.stats"
+BACKOFF_FILE="${RUNDIR}/fritzfailover.tr064_backoff"
 PIDFILE="${RUNDIR}/fritzfailover.pid"
 LOCK_FILE="${RUNDIR}/fritzfailover.lock"
 TAG="fritzfailover"
+
+# no switching during the first seconds after boot (WAN may still be coming up)
+STARTUP_GRACE=120
+# pause TR-064 logins after a failed login to avoid a FRITZ!Box login lockout
+TR064_BACKOFF=900
 
 TR064_SERVICE="urn:dslforum-org:service:WANIPConnection:1"
 TR064_URL_PATH="/upnp/control/wanipconnection1"
@@ -61,6 +78,7 @@ IGD_URL_PATH="/igdupnp/control/WANIPConn1"
 
 FAILS=0
 OKS=0
+SIM_MONITOR=""
 USE_TR064=1
 USE_PING=1
 TR_STATE="unknown"
@@ -68,6 +86,8 @@ TR_TEXT="-"
 PING_OK=0
 PING_TEXT="-"
 MESSAGE=""
+RECORD_STATS=0
+FORCE_TR064=0
 
 log()
 {
@@ -92,11 +112,21 @@ is_uint()
 	esac
 }
 
+uptime_seconds()
+{
+	_boot=$(sysctl -n kern.boottime 2>/dev/null | sed -n 's/.*sec = \([0-9]*\),.*/\1/p')
+	if is_uint "${_boot}"; then
+		echo $(($(date +%s) - _boot))
+	else
+		echo 999999
+	fi
+}
+
 load_config()
 {
 	_cfg=$(${HELPER} config 2>/dev/null) || return 1
 	eval "${_cfg}"
-	case "${FF_CHECK_MODE}" in
+	case "${FF_CHECK_MODE:-}" in
 	fritzbox_ping) USE_TR064=1; USE_PING=1 ;;
 	fritzbox) USE_TR064=1; USE_PING=0 ;;
 	ping) USE_TR064=0; USE_PING=1 ;;
@@ -157,14 +187,14 @@ write_state()
 			    "${STATS_FILE}"
 		fi
 		printf '],'
-
 		printf '"last_check":"%s",' "$(date '+%Y-%m-%d %H:%M:%S')"
 		printf '"message":"%s"}\n' "$(json_escape "${MESSAGE}")"
 	} > "${STATE_FILE}.tmp" && chmod 644 "${STATE_FILE}.tmp" && mv -f "${STATE_FILE}.tmp" "${STATE_FILE}"
 }
 
-# SOAP request against the FRITZ!Box, credentials are passed to curl via
-# stdin (-K -) so they never appear in the process list or on disk.
+# SOAP GetStatusInfo request. With authentication the credentials are passed
+# to curl via stdin (-K -) so they never appear in the process list or on disk.
+# Prints the response body followed by the HTTP status code on the last line.
 soap_call()
 {
 	_service="$1"
@@ -192,7 +222,17 @@ parse_status()
 	printf '%s' "$1" | tr -d '\r' | sed -n 's/.*<NewConnectionStatus>\([A-Za-z]*\)<\/NewConnectionStatus>.*/\1/p' | head -n 1
 }
 
-# Sets TR_STATE to up|down|unknown and TR_TEXT to a readable description.
+backoff_until()
+{
+	_u=$(cat "${BACKOFF_FILE}" 2>/dev/null)
+	is_uint "${_u}" && echo "${_u}" || echo 0
+}
+
+# Reads NewConnectionStatus from the FRITZ!Box.
+#   with TR-064 login:    authenticated TR-064 (WANIPConnection:1), UPnP as fallback
+#   without TR-064 login: UPnP IGD only, no credentials needed
+# After a failed TR-064 login, TR-064 is paused for TR064_BACKOFF seconds
+# (UPnP is still used meanwhile). Sets TR_STATE to up|down|unknown and TR_TEXT.
 tr064_check()
 {
 	TR_STATE="unknown"
@@ -201,38 +241,67 @@ tr064_check()
 		return 0
 	fi
 
-	_resp=$(soap_call "${TR064_SERVICE}" "${TR064_URL_PATH}" "${FF_TR064_HAS_AUTH}")
-	_code=$(printf '%s' "${_resp}" | tail -n 1)
-	_status=$(parse_status "${_resp}")
+	_status=""
+	_source=""
+	_tr_code=""
+	_igd_code=""
+	_note=""
+
+	if [ "${FF_TR064_HAS_AUTH}" = "1" ]; then
+		_until=$(backoff_until)
+		if [ "${FORCE_TR064}" != "1" ] && [ "$(date +%s)" -lt "${_until}" ]; then
+			_note="TR-064 login paused after a failed login until $(date -r "${_until}" '+%H:%M')"
+		else
+			_resp=$(soap_call "${TR064_SERVICE}" "${TR064_URL_PATH}" 1)
+			_tr_code=$(printf '%s' "${_resp}" | tail -n 1)
+			_status=$(parse_status "${_resp}")
+			if [ -n "${_status}" ]; then
+				_source="TR-064"
+				rm -f "${BACKOFF_FILE}"
+			elif [ "${_tr_code}" = "401" ]; then
+				_note="TR-064 login failed (check user/password)"
+				if [ "${FORCE_TR064}" != "1" ]; then
+					echo $(($(date +%s) + TR064_BACKOFF)) > "${BACKOFF_FILE}"
+					_note="${_note}, paused for $((TR064_BACKOFF / 60)) minutes"
+					log_err "TR-064 login to ${FF_FRITZBOX_IP} failed, pausing TR-064 for $((TR064_BACKOFF / 60)) minutes"
+				fi
+			fi
+		fi
+	fi
 
 	if [ -z "${_status}" ]; then
-		# fall back to the unauthenticated IGD service if TR-064 is unavailable
-		_resp2=$(soap_call "${IGD_SERVICE}" "${IGD_URL_PATH}" 0)
-		_status=$(parse_status "${_resp2}")
-		[ -n "${_status}" ] && _code="igd"
+		_resp=$(soap_call "${IGD_SERVICE}" "${IGD_URL_PATH}" 0)
+		_igd_code=$(printf '%s' "${_resp}" | tail -n 1)
+		_status=$(parse_status "${_resp}")
+		[ -n "${_status}" ] && _source="UPnP"
 	fi
 
 	case "${_status}" in
 	Connected)
 		TR_STATE="up"
-		TR_TEXT="Connected"
+		TR_TEXT="Connected (${_source})"
 		;;
 	Connecting|Disconnected|Disconnecting|PendingDisconnect|Unconfigured|Authenticating)
 		TR_STATE="down"
-		TR_TEXT="${_status}"
+		TR_TEXT="${_status} (${_source})"
 		;;
 	'')
-		case "${_code}" in
-		401) TR_TEXT="authentication failed (check TR-064 user/password)" ;;
-		000|'') TR_TEXT="FRITZ!Box not reachable" ;;
-		*) TR_TEXT="no status (HTTP ${_code})" ;;
-		esac
+		if [ "${_igd_code}" = "000" ] && { [ -z "${_tr_code}" ] || [ "${_tr_code}" = "000" ]; }; then
+			TR_TEXT="FRITZ!Box not reachable"
+		elif [ -n "${_note}" ]; then
+			TR_TEXT="${_note}; no UPnP status either"
+		else
+			TR_TEXT="no status: enter a TR-064 login or enable 'Transmit status information over UPnP' on the FRITZ!Box"
+		fi
+		[ -n "${_note}" ] && [ "${TR_TEXT#"${_note}"}" = "${TR_TEXT}" ] && TR_TEXT="${_note}; ${TR_TEXT}"
 		;;
 	*)
-		TR_TEXT="unknown status ${_status}"
+		TR_TEXT="unknown status ${_status} (${_source})"
 		;;
 	esac
-	[ "${_code}" = "igd" ] && TR_TEXT="${TR_TEXT} (IGD fallback)"
+	if [ -n "${_note}" ] && [ -n "${_status}" ]; then
+		TR_TEXT="${TR_TEXT}; ${_note}"
+	fi
 	return 0
 }
 
@@ -266,7 +335,8 @@ probe_one()
 # Per test address statistics, one line per address:
 #   target checks failed_checks sent lost last_loss since
 # (timestamps use "_" instead of a blank). Addresses no longer configured are
-# dropped, new ones start at zero. Every lost ping is also logged.
+# dropped, new ones start at zero. Lost pings are logged, except while the
+# cable line is known to be down (failover), to keep the log readable.
 update_stats()
 {
 	_sdir="$1"
@@ -293,7 +363,9 @@ update_stats()
 			_lo=$((_lo + _lost))
 			_ll=${_now}
 			[ "${_rx}" -eq 0 ] && _fc=$((_fc + 1))
-			log "probe loss ${_t}: ${_rx}/${FF_PING_COUNT} replies via ${GW_DEVICE}"
+			if [ "${GW_MONITOR}" != "${FF_BAD_MONITOR}" ]; then
+				log "probe loss ${_t}: ${_rx}/${FF_PING_COUNT} replies via ${GW_DEVICE}"
+			fi
 		fi
 		printf '%s %s %s %s %s %s %s\n' "${_t}" "${_c}" "${_fc}" "${_se}" "${_lo}" "${_ll}" "${_since}" >> "${_new}"
 	done
@@ -341,7 +413,7 @@ probe_ping()
 		[ "${_rx}" -gt 0 ] && _up=$((_up + 1))
 		PING_TEXT="${PING_TEXT}${PING_TEXT:+, }${_t} ${_rx}/${FF_PING_COUNT}"
 	done
-	if [ "${RECORD_STATS:-0}" = "1" ]; then
+	if [ "${RECORD_STATS}" = "1" ]; then
 		update_stats "${_dir}"
 	fi
 	rm -rf "${_dir}"
@@ -356,8 +428,8 @@ probe_ping()
 # Combines both checks into fail|ok|unknown.
 #   fail:    FRITZ!Box reports no connection, or no test address answers
 #   ok:      nothing failed and at least one check positively confirmed it
-#   unknown: nothing failed but nothing confirmed either (e.g. TR-064 login
-#            broken in "FRITZ!Box only" mode); counters stay untouched
+#   unknown: nothing failed but nothing confirmed either (e.g. FRITZ!Box
+#            status unreadable in "FRITZ!Box only" mode); counters untouched
 evaluate()
 {
 	if [ "${USE_TR064}" = "1" ] && [ "${TR_STATE}" = "down" ]; then
@@ -399,7 +471,9 @@ run_check()
 {
 	MESSAGE=""
 	if ! load_config; then
+		MESSAGE="configuration could not be read, nothing changed"
 		log_err "unable to read configuration"
+		write_state "unknown"
 		return 1
 	fi
 	if [ "${FF_ENABLED}" != "1" ]; then
@@ -446,8 +520,13 @@ run_check()
 	RECORD_STATS=0
 
 	_result=$(evaluate)
+	_uptime=$(uptime_seconds)
 
-	if [ "${_result}" = "unknown" ]; then
+	if [ "${_uptime}" -lt "${STARTUP_GRACE}" ]; then
+		# just booted: measure, but do not count or switch yet
+		_status="starting"
+		MESSAGE="startup: measuring only for another $((STARTUP_GRACE - _uptime)) seconds (current result: ${_result})"
+	elif [ "${_result}" = "unknown" ]; then
 		MESSAGE="FRITZ!Box status unavailable (${TR_TEXT}), no decision possible"
 		if [ "${GW_MONITOR}" = "${FF_BAD_MONITOR}" ]; then
 			_status="failover"
@@ -500,11 +579,11 @@ run_check()
 	return 0
 }
 
+# Unconditionally restores the normal monitor IP if the fake one is active.
 do_restore()
 {
 	load_config || return 0
 	load_gateway || return 0
-	# undoing a real failover is always allowed, also when test mode was just enabled
 	if [ "${GW_MONITOR}" = "${FF_BAD_MONITOR}" ]; then
 		log "restoring monitor ${FF_GOOD_MONITOR} on ${FF_GATEWAY}"
 		FF_DRY_RUN=0
@@ -513,7 +592,32 @@ do_restore()
 	rm -f "${COUNTER_FILE}"
 	FAILS=0
 	OKS=0
-	MESSAGE="monitor stopped"
+	MESSAGE="normal monitor IP active"
+	write_state "stopped"
+	return 0
+}
+
+# rc.d post-stop hook. Restoring is only done when the plugin will no longer
+# manage the gateway (disabled, or test mode active). A plain restart ("Apply"
+# in the GUI, reboot) keeps an active failover; the next start resumes it and
+# switches back only once the cable line is really healthy.
+do_stopped()
+{
+	if ! load_config; then
+		log_err "monitor stopped, configuration unreadable, gateway left unchanged"
+		return 0
+	fi
+	if [ "${FF_ENABLED}" != "1" ] || [ "${FF_DRY_RUN}" = "1" ]; then
+		do_restore
+		return 0
+	fi
+	load_gateway || return 0
+	if [ "${GW_MONITOR}" = "${FF_BAD_MONITOR}" ]; then
+		log "monitor stopped, keeping the active failover on ${FF_GATEWAY}"
+		MESSAGE="monitor stopped, failover kept (monitor IP ${GW_MONITOR}); start the service again or use 'Restore normal monitor IP'"
+	else
+		MESSAGE="monitor stopped"
+	fi
 	write_state "stopped"
 	return 0
 }
@@ -529,6 +633,7 @@ do_test()
 		    "$(json_escape "Gateway '${FF_GATEWAY}' not found. Check the name under System > Gateways > Configuration.")"
 		return 0
 	fi
+	FORCE_TR064=1
 	tr064_check
 	probe_ping
 	_result=$(evaluate)
@@ -545,11 +650,16 @@ do_test()
 		MESSAGE="No decision possible: the FRITZ!Box status could not be read."
 		;;
 	esac
+	if [ "${GW_PERSISTED}" != "1" ]; then
+		MESSAGE="${MESSAGE} The gateway is not saved yet: open it once under System > Gateways and click Save, otherwise the plugin cannot change it."
+	fi
 	if [ "${GW_FORCE_GW}" != "1" ]; then
 		MESSAGE="${MESSAGE} Note: 'Disable force gateway' is set in Firewall > Settings > Advanced, test pings use temporary host routes."
 	fi
 	if [ "${GW_MONITOR}" = "${FF_BAD_MONITOR}" ]; then
 		MESSAGE="${MESSAGE} Failover is currently active."
+	elif [ "${GW_MONITOR}" != "${FF_GOOD_MONITOR}" ]; then
+		MESSAGE="${MESSAGE} Note: the gateway currently monitors ${GW_MONITOR}; after the first failover the plugin sets ${FF_GOOD_MONITOR}. Better set it yourself under System > Gateways."
 	fi
 	printf '{"status":"%s","gateway":"%s","device":"%s","monitor":"%s","tr064":"%s","ping":"%s","message":"%s"}\n' \
 	    "${_res}" "$(json_escape "${FF_GATEWAY}")" "$(json_escape "${GW_DEVICE}")" \
@@ -578,10 +688,14 @@ locked()
 case "${1:-}" in
 run)
 	log "monitor started"
+	# fresh start: no counters from a previous run or mode, retry TR-064 login
+	rm -f "${COUNTER_FILE}" "${BACKOFF_FILE}"
 	trap 'log "monitor stopped"; exit 0' INT TERM
 	while :; do
-		locked check-locked || true
-		_interval=${FF_CHECK_INTERVAL:-10}
+		# run in the background so a stop request is handled immediately
+		locked check-locked &
+		wait $! || true
+		_interval=10
 		load_config >/dev/null 2>&1 && _interval=${FF_CHECK_INTERVAL}
 		sleep "${_interval}" &
 		wait $!
@@ -592,6 +706,12 @@ check)
 	;;
 check-locked)
 	run_check
+	;;
+stopped)
+	locked stopped-locked
+	;;
+stopped-locked)
+	do_stopped
 	;;
 restore)
 	locked restore-locked
@@ -612,7 +732,7 @@ state)
 	do_state
 	;;
 *)
-	echo "usage: $0 run|check|test|state|restore|resetstats" >&2
+	echo "usage: $0 run|check|test|state|stopped|restore|resetstats" >&2
 	exit 2
 	;;
 esac

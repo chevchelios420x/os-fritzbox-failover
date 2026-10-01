@@ -148,13 +148,19 @@ switch ($cmd) {
             fail('invalid monitor address');
         }
         $name = (string)$mdl->gateway;
+        /* exclusive config lock and fresh reload, like the core API controllers, so a
+         * concurrent save from the GUI cannot be overwritten; save() releases the lock */
+        Config::getInstance()->lock();
         $gwmdl = new Gateways();
         $uuid = find_persisted_gateway($gwmdl, $name);
         if ($uuid === null) {
+            Config::getInstance()->unlock();
             fail("gateway {$name} is not saved in System > Gateways, refusing to change it");
         }
         $gwmdl->createOrUpdateGateway(['monitor' => $ip], $uuid);
-        Config::getInstance()->save();
+        /* no history backup: frequent switching must not push real backups out of the history */
+        Config::getInstance()->save(null, false);
+        Config::getInstance()->unlock();
         echo "ok\n";
         break;
 

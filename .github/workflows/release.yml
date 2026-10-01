@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout plugin
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: plugin
 
@@ -57,24 +57,28 @@ jobs:
           echo "version=$ver" >> "$GITHUB_OUTPUT"
 
       - name: Build package in FreeBSD with OPNsense plugin tooling
-        uses: vmactions/freebsd-vm@v1
+        uses: vmactions/freebsd-vm@a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff # v1.5.8
         env:
           PLUGIN_VER: ${{ steps.version.outputs.version }}
+          PLUGINS_TAG: '26.1.11'
+          PLUGINS_COMMIT: '8ad4779754022fadb7fa32e7dd6b0e6cb16fc58c'
         with:
           release: "14.3"
           usesh: true
-          envs: PLUGIN_VER
+          envs: 'PLUGIN_VER PLUGINS_TAG PLUGINS_COMMIT'
           prepare: |
             env ASSUME_ALWAYS_YES=yes pkg bootstrap -f
             env ASSUME_ALWAYS_YES=yes pkg install -y git-lite
           run: |
             set -e
             WS="$(pwd)"
-            git clone --depth 1 https://github.com/opnsense/plugins.git /tmp/opnsense-plugins
-            # the master branch marks every package as "-devel"; release builds must not
+            # pinned OPNsense plugin build system (bump deliberately for new OPNsense releases)
+            git clone --depth 1 --branch "${PLUGINS_TAG}" https://github.com/opnsense/plugins.git /tmp/opnsense-plugins
+            test "$(git -C /tmp/opnsense-plugins rev-parse HEAD)" = "${PLUGINS_COMMIT}"
+            # development branches mark every package as "-devel"; release builds must not
             rm -f /tmp/opnsense-plugins/Mk/devel.mk
             mkdir -p /tmp/opnsense-plugins/net/fritzbox-failover
-            cp -R plugin/Makefile plugin/pkg-descr plugin/src /tmp/opnsense-plugins/net/fritzbox-failover/
+            cp -R plugin/Makefile plugin/pkg-descr plugin/src plugin/+*.pre plugin/+*.post /tmp/opnsense-plugins/net/fritzbox-failover/
             cd /tmp/opnsense-plugins/net/fritzbox-failover
             sed -i '' "s/^PLUGIN_VERSION=.*/PLUGIN_VERSION=		${PLUGIN_VER}/" Makefile
             make package
@@ -85,6 +89,7 @@ jobs:
             cp "$PKGFILE" "$WS/dist/"
             cp "$PKGFILE" "$WS/dist/os-fritzbox-failover.pkg"
             pkg info -F "$WS/dist/os-fritzbox-failover.pkg"
+            tar -xOf "$WS/dist/os-fritzbox-failover.pkg" +MANIFEST | grep -q 'pre-deinstall'
             ls -l "$WS/dist"
 
       - name: Verify package
@@ -93,14 +98,14 @@ jobs:
           test -s dist/os-fritzbox-failover.pkg
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: os-fritzbox-failover
           path: dist/*.pkg
 
       - name: Publish release assets
         if: steps.version.outputs.publish == 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           target_commitish: ${{ github.sha }}

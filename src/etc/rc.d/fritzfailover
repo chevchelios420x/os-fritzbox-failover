@@ -23,7 +23,7 @@ stop_postcmd="${name}_poststop"
 
 fritzfailover_poststop()
 {
-	${script} restore
+	${script} stopped
 }
 
 run_rc_command "$1"

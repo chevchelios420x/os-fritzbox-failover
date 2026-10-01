@@ -59,7 +59,6 @@ class FritzFailover extends BaseModel
         }
 
         $mode = (string)$this->check_mode;
-        $uses_fritzbox = in_array($mode, ['fritzbox_ping', 'fritzbox']);
         $uses_ping = in_array($mode, ['fritzbox_ping', 'ping']);
 
         $targets = array_filter(explode(',', (string)$this->probe_targets));
@@ -95,13 +94,11 @@ class FritzFailover extends BaseModel
             }
         }
 
-        if ((string)$this->enabled === '1' && $uses_fritzbox) {
-            if ((string)$this->tr064_username === '' || (string)$this->tr064_password === '') {
-                $messages->appendMessage(new Message(
-                    gettext('Please enter the TR-064 username and password or choose the ping only check.'),
-                    'tr064_username'
-                ));
-            }
+        if ((string)$this->tr064_username !== '' xor (string)$this->tr064_password !== '') {
+            $messages->appendMessage(new Message(
+                gettext('Please enter both TR-064 username and password, or leave both empty to use the UPnP status without login.'),
+                'tr064_username'
+            ));
         }
 
         return $messages;
