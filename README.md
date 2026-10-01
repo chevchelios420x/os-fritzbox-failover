@@ -24,7 +24,19 @@ Ist die Leitung mehrmals hintereinander gestört, setzt das Plugin die **Monitor
 
 ---
 
-## Installation (eine Zeile)
+## Installation mit Windows (am einfachsten)
+
+1. [`tools/Install-FritzFailover.ps1`](tools/Install-FritzFailover.ps1) herunterladen (auf der Seite rechts oben „Download raw file“).
+2. Rechtsklick auf die Datei → **„Mit PowerShell ausführen“**.
+   Falls Windows das blockiert: PowerShell öffnen und
+   `powershell -ExecutionPolicy Bypass -File .\Install-FritzFailover.ps1` eingeben.
+3. IP der OPNsense, Benutzer (`root`) und Passwort eingeben.
+
+Das Skript prüft per SSH, ob die OPNsense passt (Version, FreeBSD 14, nötige Programme, Speicherplatz, Download von GitHub, FRITZ!Box/TR-064 erreichbar), zeigt die gefundenen Gateways an und installiert das Plugin nach Rückfrage. Mit `-CheckOnly` wird nur geprüft.
+
+Voraussetzung: SSH ist in der OPNsense aktiviert (**System → Einstellungen → Verwaltung → Secure Shell**, inkl. Root-Login mit Passwort).
+
+## Installation per SSH (eine Zeile)
 
 Per SSH auf der OPNsense anmelden (Menüpunkt `8) Shell`) und einfügen:
 
