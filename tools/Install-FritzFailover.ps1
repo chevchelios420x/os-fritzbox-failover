@@ -8,11 +8,8 @@
     Das Skript fragt nach Adresse, Benutzername und Passwort der OPNsense,
     führt eine Reihe von Prüfungen durch und zeigt das Ergebnis farbig an.
 
-    Verbindung:
-      * Ist das PowerShell-Modul "Posh-SSH" vorhanden (oder darf es installiert werden),
-        wird das Passwort einmal abgefragt und für alle Schritte verwendet.
-      * Andernfalls wird das in Windows 10/11 eingebaute ssh.exe benutzt. Dann fragt
-        ssh selbst nach dem Passwort (bei Prüfung und Installation je einmal).
+    Verbindung: Es wird das in Windows 10/11 eingebaute ssh.exe (OpenSSH-Client) benutzt.
+    ssh fragt selbst nach dem Passwort (bei Prüfung und Installation je einmal).
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\Install-FritzFailover.ps1
@@ -161,68 +158,21 @@ function Wait-Exit([int]$Code) {
     exit $Code
 }
 
-$script:Session = $null
-$script:UsePosh = $false
-
 function Initialize-Connection {
-    if (Get-Module -ListAvailable -Name Posh-SSH) {
-        $script:UsePosh = $true
-    } else {
-        Write-Host ''
-        Write-Host 'Fuer eine bequeme Passwortabfrage kann das PowerShell-Modul "Posh-SSH" installiert werden'
-        Write-Host '(nur fuer deinen Benutzer, aus der offiziellen PowerShell Gallery).'
-        $a = Read-Host 'Posh-SSH jetzt installieren? [J/n]'
-        if ($a -eq '' -or $a -match '^[jJyY]') {
-            try {
-                [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-                if (-not (Get-PackageProvider -ListAvailable -Name NuGet -ErrorAction SilentlyContinue)) {
-                    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Scope CurrentUser -Force | Out-Null
-                }
-                Install-Module -Name Posh-SSH -Scope CurrentUser -Force -AllowClobber
-                $script:UsePosh = $true
-            } catch {
-                Write-Host "Posh-SSH konnte nicht installiert werden: $($_.Exception.Message)" -ForegroundColor Yellow
-            }
-        }
+    if (-not (Get-Command ssh.exe -ErrorAction SilentlyContinue)) {
+        Write-Host 'ssh.exe wurde nicht gefunden.' -ForegroundColor Red
+        Write-Host 'Bitte unter Einstellungen > Apps > Optionale Features den "OpenSSH-Client" installieren.' -ForegroundColor Red
+        Wait-Exit 1
     }
-
-    if ($script:UsePosh) {
-        Import-Module Posh-SSH
-        $cred = Get-Credential -UserName $UserName -Message "Passwort fuer $UserName@$HostName"
-        if (-not $cred) { Write-Host 'Abgebrochen.' -ForegroundColor Red; Wait-Exit 1 }
-        try {
-            $script:Session = New-SSHSession -ComputerName $HostName -Port $Port -Credential $cred `
-                -AcceptKey -ConnectionTimeout 15 -ErrorAction Stop
-        } catch {
-            Write-Host "SSH-Anmeldung fehlgeschlagen: $($_.Exception.Message)" -ForegroundColor Red
-            Write-Host 'Pruefe Adresse, Benutzer, Passwort und ob SSH in der OPNsense aktiviert ist' -ForegroundColor Red
-            Write-Host '(System > Einstellungen > Verwaltung > Secure Shell).' -ForegroundColor Red
-            Wait-Exit 1
-        }
-    } else {
-        if (-not (Get-Command ssh.exe -ErrorAction SilentlyContinue)) {
-            Write-Host 'ssh.exe wurde nicht gefunden.' -ForegroundColor Red
-            Write-Host 'Bitte unter Einstellungen > Apps > Optionale Features den "OpenSSH-Client" installieren' -ForegroundColor Red
-            Write-Host 'oder das Skript erneut starten und Posh-SSH installieren lassen.' -ForegroundColor Red
-            Wait-Exit 1
-        }
-        Write-Host ''
-        Write-Host 'Es wird ssh.exe verwendet. Gib dein OPNsense-Passwort ein, wenn ssh danach fragt.' -ForegroundColor Yellow
-        Write-Host 'Beim ersten Verbinden fragt ssh evtl., ob du dem Host vertraust: mit "yes" bestaetigen.' -ForegroundColor Yellow
-    }
+    Write-Host ''
+    Write-Host 'Gib dein OPNsense-Passwort ein, wenn ssh danach fragt (die Eingabe bleibt unsichtbar).' -ForegroundColor Yellow
+    Write-Host 'Beim ersten Verbinden fragt ssh evtl., ob du dem Host vertraust: mit "yes" bestaetigen.' -ForegroundColor Yellow
 }
 
-function Invoke-Remote([string]$Script, [int]$TimeoutSec = 120) {
+function Invoke-Remote([string]$Script) {
     $cmd = ConvertTo-RemoteCommand $Script
-    if ($script:UsePosh) {
-        $r = Invoke-SSHCommand -SSHSession $script:Session -Command $cmd -TimeOut $TimeoutSec
-        $out = @($r.Output)
-        if ($r.Error) { $out += ($r.Error -split "`n") }
-        return [pscustomobject]@{ Output = $out; ExitCode = $r.ExitStatus }
-    } else {
-        $out = & ssh.exe -p $Port -o ConnectTimeout=15 -o ServerAliveInterval=10 "$UserName@$HostName" $cmd
-        return [pscustomobject]@{ Output = @($out); ExitCode = $LASTEXITCODE }
-    }
+    $out = & ssh.exe -p $Port -o ConnectTimeout=15 -o ServerAliveInterval=10 "$UserName@$HostName" $cmd
+    return [pscustomobject]@{ Output = @($out); ExitCode = $LASTEXITCODE }
 }
 
 # ---------------------------------------------------------------------------
@@ -286,7 +236,6 @@ Write-Host ''
 if ($fails -gt 0) {
     Write-Host "Ergebnis: $fails Problem(e) gefunden. Das Plugin kann so NICHT installiert werden." -ForegroundColor Red
     Write-Host 'Bitte die rot markierten Punkte beheben und das Skript erneut starten.' -ForegroundColor Red
-    if ($script:Session) { Remove-SSHSession -SSHSession $script:Session | Out-Null }
     Wait-Exit 2
 }
 if ($warns -gt 0) {
@@ -296,7 +245,6 @@ if ($warns -gt 0) {
 }
 
 if ($CheckOnly) {
-    if ($script:Session) { Remove-SSHSession -SSHSession $script:Session | Out-Null }
     Wait-Exit 0
 }
 
@@ -304,15 +252,13 @@ Write-Host ''
 $a = Read-Host 'Plugin jetzt installieren? [J/n]'
 if (-not ($a -eq '' -or $a -match '^[jJyY]')) {
     Write-Host 'Keine Installation durchgefuehrt.'
-    if ($script:Session) { Remove-SSHSession -SSHSession $script:Session | Out-Null }
     Wait-Exit 0
 }
 
 Write-Title 'Installiere Plugin ...'
-$res = Invoke-Remote $RemoteInstall 300
+$res = Invoke-Remote $RemoteInstall
 $res.Output | Where-Object { $_ -and $_ -notmatch '^INSTALL_' } | ForEach-Object { Write-Host "  $_" }
 $done = $res.Output | Where-Object { $_ -match '^INSTALL_OK (.*)$' } | Select-Object -First 1
-if ($script:Session) { Remove-SSHSession -SSHSession $script:Session | Out-Null }
 
 Write-Host ''
 if ($done) {
