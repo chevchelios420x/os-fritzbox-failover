@@ -20,7 +20,7 @@ Das Plugin läuft als kleiner Dienst und prüft alle paar Sekunden:
 1. **FRITZ!Box-Status per TR-064** (`WANIPConnection:1` → `GetStatusInfo`, Digest-Authentifizierung wie von FRITZ!OS 8 verlangt; Fallback auf den unauthentifizierten UPnP-IGD-Dienst).
 2. **Erzwungenen Test-Ping über die Kabelschnittstelle** (Quelladresse der Kabel-Schnittstelle, bei Bedarf temporäre Host-Route über das Kabel-Gateway) – unabhängig davon, über welche Leitung die Firewall gerade routet.
 
-Ist die Leitung mehrmals hintereinander gestört, setzt das Plugin die **Monitor-IP des Kabel-Gateways auf eine tote Adresse** (`192.0.2.1`). OPNsense sieht 100 % Verlust und schaltet mit seinen **eigenen Gateway-Gruppen** auf das Backup um. Ist die Kabelleitung wieder mehrmals hintereinander gesund, wird die **normale Monitor-IP** zurückgesetzt und OPNsense schaltet zurück. Das Gateway selbst wird **nie deaktiviert**.
+Ist die Leitung mehrmals hintereinander gestört, setzt das Plugin die **Monitor-IP des Kabel-Gateways auf eine tote Adresse** (`192.0.2.1`). OPNsense sieht 100 % Verlust und schaltet mit seinen **eigenen Gateway-Gruppen** auf das Backup um. Ist die Kabelleitung wieder mehrmals hintereinander gesund, wird die **normale Monitor-IP** zurückgesetzt und OPNsense schaltet zurück. Das Gateway selbst wird **nie deaktiviert**, und das Plugin lädt weder Routing noch Firewall neu: Es startet nur den Gateway-Monitor (dpinger) des Kabel-Gateways mit der neuen Monitor-IP neu (`pluginctl -c monitor <Gateway>`). Die eigentliche Umschaltung macht OPNsense selbst, sobald dpinger den Verlust bzw. die Erholung meldet.
 
 ---
 

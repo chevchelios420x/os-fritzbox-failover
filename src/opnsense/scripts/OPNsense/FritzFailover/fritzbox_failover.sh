@@ -40,7 +40,6 @@ PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
 umask 077
 
 HELPER="/usr/local/opnsense/scripts/OPNsense/FritzFailover/fritzfailover_helper.php"
-CONFIGCTL="/usr/local/sbin/configctl"
 RUNDIR="/var/run"
 STATE_FILE="${RUNDIR}/fritzfailover.state"
 COUNTER_FILE="${RUNDIR}/fritzfailover.counters"
@@ -55,7 +54,6 @@ IGD_URL_PATH="/igdupnp/control/WANIPConn1"
 
 FAILS=0
 OKS=0
-PENDING_ALARM=0
 TR_STATE="unknown"
 TR_TEXT="-"
 PING_OK=0
@@ -107,18 +105,16 @@ load_counters()
 {
 	FAILS=0
 	OKS=0
-	PENDING_ALARM=0
 	if [ -f "${COUNTER_FILE}" ]; then
-		read -r _f _o _p < "${COUNTER_FILE}" || true
+		read -r _f _o _rest < "${COUNTER_FILE}" || true
 		is_uint "${_f:-}" && FAILS=${_f}
 		is_uint "${_o:-}" && OKS=${_o}
-		is_uint "${_p:-}" && PENDING_ALARM=${_p}
 	fi
 }
 
 save_counters()
 {
-	printf '%s %s %s\n' "${FAILS}" "${OKS}" "${PENDING_ALARM}" > "${COUNTER_FILE}.tmp" &&
+	printf '%s %s\n' "${FAILS}" "${OKS}" > "${COUNTER_FILE}.tmp" &&
 	    mv -f "${COUNTER_FILE}.tmp" "${COUNTER_FILE}"
 }
 
@@ -259,26 +255,29 @@ probe_ping()
 	return 1
 }
 
+# Only the dpinger instance of the cable gateway is restarted with the new
+# monitor IP. Routing and firewall are not touched: dpinger then reports the
+# loss (or recovery) itself and OPNsense's own gateway watcher performs the
+# native failover/failback of the gateway groups.
 apply_monitor()
 {
 	_new="$1"
+	_old="${GW_MONITOR}"
 	if ! ${HELPER} setmonitor "${_new}" >/dev/null 2>&1; then
 		log_err "could not set monitor IP of ${FF_GATEWAY} to ${_new}"
 		MESSAGE="could not change monitor IP"
 		return 1
 	fi
-	${CONFIGCTL} interface routes configure >/dev/null 2>&1
-	GW_MONITOR="${_new}"
-	PENDING_ALARM=1
-	return 0
-}
-
-flush_alarm()
-{
-	if [ "${PENDING_ALARM}" = "1" ]; then
-		${CONFIGCTL} interface routes alarm "${FF_GATEWAY}" >/dev/null 2>&1
-		PENDING_ALARM=0
+	/usr/local/sbin/pluginctl -c monitor "${FF_GATEWAY}" >/dev/null 2>&1
+	# drop the stale host route of the previous monitor IP via the cable gateway
+	if [ -n "${_old}" ] && [ "${_old}" != "${_new}" ] && [ -n "${GW_ADDR}" ]; then
+		_rgw=$(route -n get -inet "${_old}" 2>/dev/null | awk '$1 == "gateway:" { print $2 }')
+		if [ "${_rgw}" = "${GW_ADDR}" ] && [ "${_old}" != "${GW_ADDR}" ]; then
+			route -q -n delete -inet -host "${_old}" "${GW_ADDR}" >/dev/null 2>&1
+		fi
 	fi
+	GW_MONITOR="${_new}"
+	return 0
 }
 
 run_check()
@@ -311,7 +310,6 @@ run_check()
 	fi
 
 	load_counters
-	flush_alarm
 
 	tr064_check
 	probe_ping
@@ -368,8 +366,7 @@ do_restore()
 	load_gateway || return 0
 	if [ "${GW_MONITOR}" = "${FF_BAD_MONITOR}" ]; then
 		log "restoring monitor ${FF_GOOD_MONITOR} on ${FF_GATEWAY}"
-		PENDING_ALARM=0
-		apply_monitor "${FF_GOOD_MONITOR}" && flush_alarm
+		apply_monitor "${FF_GOOD_MONITOR}"
 	fi
 	rm -f "${COUNTER_FILE}"
 	FAILS=0
