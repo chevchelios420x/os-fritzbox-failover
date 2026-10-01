@@ -57,6 +57,19 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
+     * reset the per test address statistics
+     * @return array
+     */
+    public function resetstatsAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['status' => 'failed', 'message' => 'POST required'];
+        }
+        (new Backend())->configdRun('fritzfailover resetstats');
+        return ['status' => 'ok'];
+    }
+
+    /**
      * run a single diagnostic check without changing anything
      * @return array
      */

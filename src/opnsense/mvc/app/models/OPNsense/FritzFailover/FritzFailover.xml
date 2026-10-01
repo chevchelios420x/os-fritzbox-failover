@@ -7,6 +7,10 @@
             <Default>0</Default>
             <Required>Y</Required>
         </enabled>
+        <dry_run type="BooleanField">
+            <Default>1</Default>
+            <Required>Y</Required>
+        </dry_run>
         <fritzbox_ip type="NetworkField">
             <Default>192.168.0.1</Default>
             <Required>Y</Required>

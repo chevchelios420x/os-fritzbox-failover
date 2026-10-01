@@ -46,6 +46,25 @@ POSSIBILITY OF SUCH DAMAGE.
                 $('#ff_counters').text((data.failures !== undefined ? data.failures : '-') + ' / ' + (data.successes !== undefined ? data.successes : '-'));
                 $('#ff_last').text(data.last_check || '-');
                 $('#ff_message').text(data.message || '');
+                $('#ff_dryrun').toggle(data.dry_run === true);
+                const tbody = $('#ff_targets tbody').empty();
+                (data.targets || []).forEach(function (t) {
+                    const pct = t.sent > 0 ? (100 * t.lost / t.sent).toFixed(2) : '0.00';
+                    const row = $('<tr/>');
+                    row.append($('<td/>').text(t.target));
+                    row.append($('<td/>').text(t.checks));
+                    row.append($('<td/>').text(t.lost + ' / ' + t.sent + ' (' + pct + ' %)'));
+                    row.append($('<td/>').text(t.failed_checks));
+                    row.append($('<td/>').text(t.last_loss || '-'));
+                    row.append($('<td/>').text(t.since || '-'));
+                    if (t.failed_checks > 0) {
+                        row.addClass('warning');
+                    }
+                    tbody.append(row);
+                });
+                if (!(data.targets || []).length) {
+                    tbody.append($('<tr/>').append($('<td colspan="6"/>').text('{{ lang._("No data yet. Enable the plugin and click Apply.") }}')));
+                }
             });
         }
 
@@ -69,6 +88,12 @@ POSSIBILITY OF SUCH DAMAGE.
                 updateServiceControlUI('fritzfailover');
                 setTimeout(updateState, 2000);
             }
+        });
+
+        $('#resetStatsAct').click(function () {
+            ajaxCall('/api/fritzfailover/service/resetstats', {}, function () {
+                updateState();
+            });
         });
 
         $('#testAct').click(function () {
@@ -104,6 +129,10 @@ POSSIBILITY OF SUCH DAMAGE.
 
 <div class="content-box" style="padding-bottom: 1.5em;">
     <div class="col-md-12">
+        <div id="ff_dryrun" class="alert alert-warning" role="alert" style="display:none; margin-top: 1em;">
+            <b>{{ lang._('TEST MODE active:') }}</b>
+            {{ lang._('All checks run, but nothing on OPNsense is changed. The state below shows what the plugin would do. Switch test mode off in the settings to activate the failover.') }}
+        </div>
         <h2>{{ lang._('Status') }}</h2>
         <table class="table table-condensed">
             <tbody>
@@ -116,6 +145,24 @@ POSSIBILITY OF SUCH DAMAGE.
                 <tr><td>{{ lang._('Info') }}</td><td id="ff_message"></td></tr>
             </tbody>
         </table>
+        <h2>{{ lang._('Internet test addresses (statistics)') }}</h2>
+        <p>{{ lang._('Every lost ping per test address, measured through the cable line. If an address loses pings while the others answer, that address is unreliable as monitor target (e.g. the 9.9.9.9 timeouts). A failed check means no reply at all from this address in that check.') }}</p>
+        <table id="ff_targets" class="table table-condensed table-striped">
+            <thead>
+                <tr>
+                    <th>{{ lang._('Address') }}</th>
+                    <th>{{ lang._('Checks') }}</th>
+                    <th>{{ lang._('Lost pings') }}</th>
+                    <th>{{ lang._('Failed checks') }}</th>
+                    <th>{{ lang._('Last loss') }}</th>
+                    <th>{{ lang._('Measuring since') }}</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <button class="btn btn-default btn-xs" id="resetStatsAct" type="button">
+            <i class="fa fa-eraser fa-fw"></i> {{ lang._('Reset statistics') }}
+        </button>
     </div>
 </div>
 

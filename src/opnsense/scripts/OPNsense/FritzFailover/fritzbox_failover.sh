@@ -36,7 +36,10 @@
 # gateway groups fail over natively; when it is healthy again the normal
 # monitor IP is restored. The gateway itself is never disabled.
 #
-# usage: fritzbox_failover.sh run|check|test|state|restore
+# Test mode (dry run): all checks run and every lost ping is recorded per test
+# address, but nothing on OPNsense is changed; the decision is only simulated.
+#
+# usage: fritzbox_failover.sh run|check|test|state|restore|resetstats
 
 set -u
 PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
@@ -46,6 +49,7 @@ HELPER="/usr/local/opnsense/scripts/OPNsense/FritzFailover/fritzfailover_helper.
 RUNDIR="/var/run"
 STATE_FILE="${RUNDIR}/fritzfailover.state"
 COUNTER_FILE="${RUNDIR}/fritzfailover.counters"
+STATS_FILE="${RUNDIR}/fritzfailover.stats"
 PIDFILE="${RUNDIR}/fritzfailover.pid"
 LOCK_FILE="${RUNDIR}/fritzfailover.lock"
 TAG="fritzfailover"
@@ -116,16 +120,20 @@ load_counters()
 {
 	FAILS=0
 	OKS=0
+	SIM_MONITOR=""
 	if [ -f "${COUNTER_FILE}" ]; then
-		read -r _f _o _rest < "${COUNTER_FILE}" || true
+		read -r _f _o _m _rest < "${COUNTER_FILE}" || true
 		is_uint "${_f:-}" && FAILS=${_f}
 		is_uint "${_o:-}" && OKS=${_o}
+		case "${_m:-}" in
+		[0-9]*.[0-9]*.[0-9]*.[0-9]*) SIM_MONITOR=${_m} ;;
+		esac
 	fi
 }
 
 save_counters()
 {
-	printf '%s %s\n' "${FAILS}" "${OKS}" > "${COUNTER_FILE}.tmp" &&
+	printf '%s %s %s\n' "${FAILS}" "${OKS}" "${SIM_MONITOR:--}" > "${COUNTER_FILE}.tmp" &&
 	    mv -f "${COUNTER_FILE}.tmp" "${COUNTER_FILE}"
 }
 
@@ -140,6 +148,16 @@ write_state()
 		printf '"tr064":"%s",' "$(json_escape "${TR_TEXT}")"
 		printf '"ping":"%s",' "$(json_escape "${PING_TEXT}")"
 		printf '"failures":%s,"successes":%s,' "${FAILS}" "${OKS}"
+		printf '"dry_run":%s,' "$([ "${FF_DRY_RUN:-0}" = "1" ] && echo true || echo false)"
+		printf '"targets":['
+		if [ -f "${STATS_FILE}" ]; then
+			awk 'BEGIN { n = 0 } NF >= 6 {
+			    gsub(/_/, " ", $6); gsub(/_/, " ", $7);
+			    printf "%s{\"target\":\"%s\",\"checks\":%d,\"failed_checks\":%d,\"sent\":%d,\"lost\":%d,\"last_loss\":\"%s\",\"since\":\"%s\"}", (n++ ? "," : ""), $1, $2, $3, $4, $5, ($6 == "-" ? "" : $6), (NF >= 7 ? $7 : "") }' \
+			    "${STATS_FILE}"
+		fi
+		printf '],'
+
 		printf '"last_check":"%s",' "$(date '+%Y-%m-%d %H:%M:%S')"
 		printf '"message":"%s"}\n' "$(json_escape "${MESSAGE}")"
 	} > "${STATE_FILE}.tmp" && chmod 644 "${STATE_FILE}.tmp" && mv -f "${STATE_FILE}.tmp" "${STATE_FILE}"
@@ -245,6 +263,43 @@ probe_one()
 	echo "${_r:-0}"
 }
 
+# Per test address statistics, one line per address:
+#   target checks failed_checks sent lost last_loss since
+# (timestamps use "_" instead of a blank). Addresses no longer configured are
+# dropped, new ones start at zero. Every lost ping is also logged.
+update_stats()
+{
+	_sdir="$1"
+	_now=$(date '+%Y-%m-%d_%H:%M:%S')
+	_new="${STATS_FILE}.tmp"
+	: > "${_new}"
+	_i=0
+	for _t in ${FF_PROBE_TARGETS}; do
+		_i=$((_i + 1))
+		_rx=$(cat "${_sdir}/${_i}" 2>/dev/null)
+		is_uint "${_rx}" || _rx=0
+		[ "${_rx}" -gt "${FF_PING_COUNT}" ] && _rx=${FF_PING_COUNT}
+		_lost=$((FF_PING_COUNT - _rx))
+		_line=$(awk -v t="${_t}" '$1 == t { print; exit }' "${STATS_FILE}" 2>/dev/null)
+		if [ -n "${_line}" ]; then
+			set -- ${_line}
+			_c=$2; _fc=$3; _se=$4; _lo=$5; _ll=$6; _since=${7:-${_now}}
+		else
+			_c=0; _fc=0; _se=0; _lo=0; _ll="-"; _since=${_now}
+		fi
+		_c=$((_c + 1))
+		_se=$((_se + FF_PING_COUNT))
+		if [ "${_lost}" -gt 0 ]; then
+			_lo=$((_lo + _lost))
+			_ll=${_now}
+			[ "${_rx}" -eq 0 ] && _fc=$((_fc + 1))
+			log "probe loss ${_t}: ${_rx}/${FF_PING_COUNT} replies via ${GW_DEVICE}"
+		fi
+		printf '%s %s %s %s %s %s %s\n' "${_t}" "${_c}" "${_fc}" "${_se}" "${_lo}" "${_ll}" "${_since}" >> "${_new}"
+	done
+	mv -f "${_new}" "${STATS_FILE}"
+}
+
 # Pings all test addresses in parallel. The line counts as reachable as soon
 # as one address answers; it only counts as dead when none answers.
 probe_ping()
@@ -286,6 +341,9 @@ probe_ping()
 		[ "${_rx}" -gt 0 ] && _up=$((_up + 1))
 		PING_TEXT="${PING_TEXT}${PING_TEXT:+, }${_t} ${_rx}/${FF_PING_COUNT}"
 	done
+	if [ "${RECORD_STATS:-0}" = "1" ]; then
+		update_stats "${_dir}"
+	fi
 	rm -rf "${_dir}"
 	PING_TEXT="${PING_TEXT} (via ${GW_DEVICE}, source ${_src})"
 	if [ "${_up}" -gt 0 ]; then
@@ -313,28 +371,26 @@ evaluate()
 	fi
 }
 
-# Only the dpinger instance of the cable gateway is restarted with the new
-# monitor IP. Routing and firewall are not touched: dpinger then reports the
-# loss (or recovery) itself and OPNsense's own gateway watcher performs the
-# native failover/failback of the gateway groups.
+# Only the monitor IP of the cable gateway is changed and only its dpinger
+# instance is restarted. Routing and firewall are not touched: dpinger then
+# reports the loss (or recovery) itself and OPNsense's own gateway watcher
+# performs the native failover/failback of the gateway groups.
+# In test mode nothing is changed, the new monitor IP is only simulated.
 apply_monitor()
 {
 	_new="$1"
-	_old="${GW_MONITOR}"
+	if [ "${FF_DRY_RUN}" = "1" ]; then
+		log "TEST MODE: would set monitor IP of ${FF_GATEWAY} to ${_new} (nothing changed)"
+		SIM_MONITOR="${_new}"
+		GW_MONITOR="${_new}"
+		return 0
+	fi
 	if ! ${HELPER} setmonitor "${_new}" >/dev/null 2>&1; then
 		log_err "could not set monitor IP of ${FF_GATEWAY} to ${_new}"
 		MESSAGE="could not change monitor IP"
 		return 1
 	fi
 	/usr/local/sbin/pluginctl -c monitor "${FF_GATEWAY}" >/dev/null 2>&1
-	# drop the stale host route of the previous monitor IP via the cable gateway
-	if [ -n "${_old}" ] && [ "${_old}" != "${_new}" ] && [ -n "${GW_ADDR}" ] &&
-	    [ "${_old}" != "${GW_ADDR}" ]; then
-		_rgw=$(route -n get -inet "${_old}" 2>/dev/null | awk '$1 == "gateway:" { print $2 }')
-		if [ "${_rgw}" = "${GW_ADDR}" ]; then
-			route -q -n delete -inet -host "${_old}" "${GW_ADDR}" >/dev/null 2>&1
-		fi
-	fi
 	GW_MONITOR="${_new}"
 	return 0
 }
@@ -361,6 +417,12 @@ run_check()
 		write_state "unknown"
 		return 1
 	fi
+	if [ "${GW_PERSISTED}" != "1" ]; then
+		MESSAGE="gateway ${FF_GATEWAY} is not saved yet: open it once under System > Gateways and click Save"
+		log_err "${MESSAGE}"
+		write_state "unknown"
+		return 1
+	fi
 	if [ "${GW_MONITOR_DISABLED}" = "1" ]; then
 		MESSAGE="monitoring is disabled on gateway ${FF_GATEWAY}, enable it under System > Gateways"
 		log_err "${MESSAGE}"
@@ -369,9 +431,19 @@ run_check()
 	fi
 
 	load_counters
+	REAL_MONITOR="${GW_MONITOR}"
+	if [ "${FF_DRY_RUN}" = "1" ]; then
+		# simulate the monitor IP; a real failover left over is shown as is
+		[ -n "${SIM_MONITOR}" ] || SIM_MONITOR="${GW_MONITOR}"
+		GW_MONITOR="${SIM_MONITOR}"
+	else
+		SIM_MONITOR=""
+	fi
 
 	tr064_check
+	RECORD_STATS=1
 	probe_ping
+	RECORD_STATS=0
 
 	_result=$(evaluate)
 
@@ -393,6 +465,7 @@ run_check()
 					OKS=0
 					_status="ok"
 					MESSAGE="switched back to cable"
+					[ "${FF_DRY_RUN}" = "1" ] && MESSAGE="TEST MODE: would switch back to cable now"
 				fi
 			fi
 		else
@@ -413,12 +486,16 @@ run_check()
 					FAILS=0
 					_status="failover"
 					MESSAGE="switched to backup line"
+					[ "${FF_DRY_RUN}" = "1" ] && MESSAGE="TEST MODE: would fail over to the backup line now"
 				fi
 			fi
 		fi
 	fi
 
 	save_counters
+	if [ "${FF_DRY_RUN}" = "1" ]; then
+		[ -n "${MESSAGE}" ] || MESSAGE="TEST MODE: nothing is changed (real monitor IP ${REAL_MONITOR})"
+	fi
 	write_state "${_status}"
 	return 0
 }
@@ -427,8 +504,10 @@ do_restore()
 {
 	load_config || return 0
 	load_gateway || return 0
+	# undoing a real failover is always allowed, also when test mode was just enabled
 	if [ "${GW_MONITOR}" = "${FF_BAD_MONITOR}" ]; then
 		log "restoring monitor ${FF_GOOD_MONITOR} on ${FF_GATEWAY}"
+		FF_DRY_RUN=0
 		apply_monitor "${FF_GOOD_MONITOR}"
 	fi
 	rm -f "${COUNTER_FILE}"
@@ -520,6 +599,9 @@ restore)
 restore-locked)
 	do_restore
 	;;
+resetstats)
+	rm -f "${STATS_FILE}"
+	;;
 test)
 	locked test-locked
 	;;
@@ -530,7 +612,7 @@ state)
 	do_state
 	;;
 *)
-	echo "usage: $0 run|check|test|state|restore" >&2
+	echo "usage: $0 run|check|test|state|restore|resetstats" >&2
 	exit 2
 	;;
 esac

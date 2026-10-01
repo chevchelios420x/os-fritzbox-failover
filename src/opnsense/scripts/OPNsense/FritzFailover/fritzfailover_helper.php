@@ -84,12 +84,23 @@ function resolve_device(FritzFailover $mdl, $gw)
     return $gw !== null && !empty($gw['if']) ? $gw['if'] : '';
 }
 
+function find_persisted_gateway(Gateways $gwmdl, $name)
+{
+    foreach ($gwmdl->gateway_item->iterateItems() as $uuid => $item) {
+        if ((string)$item->name === $name) {
+            return $uuid;
+        }
+    }
+    return null;
+}
+
 $mdl = new FritzFailover();
 $cmd = $argv[1] ?? '';
 
 switch ($cmd) {
     case 'config':
         emit('FF_ENABLED', (string)$mdl->enabled);
+        emit('FF_DRY_RUN', (string)$mdl->dry_run);
         emit('FF_FRITZBOX_IP', (string)$mdl->fritzbox_ip);
         emit('FF_CHECK_MODE', (string)$mdl->check_mode);
         emit('FF_TR064_PORT', (int)(string)$mdl->tr064_port);
@@ -120,6 +131,7 @@ switch ($cmd) {
     case 'gwinfo':
         $gw = find_gateway((string)$mdl->gateway);
         emit('GW_FOUND', $gw !== null ? '1' : '0');
+        emit('GW_PERSISTED', find_persisted_gateway(new Gateways(), (string)$mdl->gateway) !== null ? '1' : '0');
         emit('GW_ADDR', $gw !== null && is_ipv4($gw['gateway'] ?? '') ? $gw['gateway'] : '');
         emit('GW_MONITOR', $gw !== null ? ($gw['monitor'] ?? '') : '');
         emit('GW_MONITOR_DISABLED', $gw !== null && !empty($gw['monitor_disable']) ? '1' : '0');
@@ -130,36 +142,18 @@ switch ($cmd) {
         break;
 
     case 'setmonitor':
+        /* only the monitor IP of an existing, persisted gateway is changed, nothing is ever created */
         $ip = $argv[2] ?? '';
         if (!is_ipv4($ip)) {
             fail('invalid monitor address');
         }
         $name = (string)$mdl->gateway;
-        $gw = find_gateway($name);
-        if ($gw === null) {
-            fail("gateway {$name} not found");
-        }
         $gwmdl = new Gateways();
-        $uuid = null;
-        foreach ($gwmdl->gateway_item->iterateItems() as $key => $item) {
-            if ((string)$item->name === $name) {
-                $uuid = $key;
-                break;
-            }
+        $uuid = find_persisted_gateway($gwmdl, $name);
+        if ($uuid === null) {
+            fail("gateway {$name} is not saved in System > Gateways, refusing to change it");
         }
-        if ($uuid !== null) {
-            $gwmdl->createOrUpdateGateway(['monitor' => $ip], $uuid);
-        } else {
-            /* dynamic gateway without persisted entry, persist it with the new monitor */
-            $gwmdl->createOrUpdateGateway([
-                'name' => $name,
-                'interface' => $gw['interface'] ?? '',
-                'ipprotocol' => 'inet',
-                'gateway' => 'dynamic',
-                'monitor' => $ip,
-                'descr' => $gw['descr'] ?? 'Interface ' . $name . ' Gateway',
-            ]);
-        }
+        $gwmdl->createOrUpdateGateway(['monitor' => $ip], $uuid);
         Config::getInstance()->save();
         echo "ok\n";
         break;

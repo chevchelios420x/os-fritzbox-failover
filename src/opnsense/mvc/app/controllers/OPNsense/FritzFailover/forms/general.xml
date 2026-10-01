@@ -10,6 +10,12 @@
         <help>Turn the FRITZ!Box failover monitor on. When it detects a broken cable line it makes OPNsense switch to your backup gateway (e.g. 5G/LTE) and switches back automatically once the cable line works again.</help>
     </field>
     <field>
+        <id>fritzfailover.dry_run</id>
+        <label>Test mode (dry run)</label>
+        <type>checkbox</type>
+        <help>Runs all checks and records every lost ping per test address, but NEVER changes anything on OPNsense. The status shows what the plugin would have done (&quot;would fail over&quot;). Leave this on for a few days to see whether the test addresses also suffer from the timeouts you see with dpinger, then switch it off to activate the failover.</help>
+    </field>
+    <field>
         <id>fritzfailover.check_mode</id>
         <label>How to detect a dead cable line</label>
         <type>dropdown</type>

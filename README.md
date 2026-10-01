@@ -24,7 +24,15 @@ Welche Prüfungen benutzt werden, stellst du in der GUI ein: beide (empfohlen), 
 
 Ist die Leitung mehrmals hintereinander tot (Standard 3), setzt das Plugin die **Monitor-IP des Kabel-Gateways auf eine tote Adresse** (`192.0.2.1`). Dazu startet es nur den Gateway-Monitor (dpinger) dieses einen Gateways neu (`pluginctl -c monitor <Gateway>`). dpinger meldet 100 % Verlust, und OPNsense schaltet mit seinen **eigenen Gateway-Gruppen** auf das Backup um. Ist die Leitung wieder mehrmals hintereinander gesund, wird die normale Monitor-IP (die FRITZ!Box) zurückgesetzt, und OPNsense schaltet selbst zurück.
 
-Das Gateway selbst wird **nie deaktiviert**. Routing und Firewall lädt das Plugin nicht selbst neu, das macht OPNsense bei der Umschaltung wie bei jedem Gateway-Ausfall.
+Das Plugin greift so wenig wie möglich ein. Es ändert **ausschließlich die Monitor-IP eines bestehenden Gateways** und startet den dpinger dieses Gateways neu. Es legt keine Gateways an, deaktiviert keine, löscht keine Routen und lädt weder Routing noch Firewall selbst neu. Die Umschaltung macht OPNsense wie bei jedem Gateway-Ausfall.
+
+### Testmodus (Dry Run)
+
+Nach der Installation ist der **Testmodus eingeschaltet**. Dabei laufen alle Prüfungen, aber an der OPNsense wird **nichts** geändert. Die Statusseite zeigt:
+- was das Plugin tun *würde* („würde jetzt auf Backup umschalten“),
+- eine **Statistik pro Testadresse**: Prüfungen, verlorene Pings, Prüfungen ganz ohne Antwort, Zeitpunkt des letzten Verlusts.
+
+So siehst du nach ein paar Tagen, ob die Testadressen (z. B. `9.9.9.9`) dieselben Aussetzer haben wie dpinger, und ob das Plugin in dieser Zeit fälschlich umgeschaltet hätte. Jeder verlorene Ping steht zusätzlich im Systemlog (Tag `fritzfailover`). Erst wenn alles sauber aussieht, schaltest du den Testmodus aus.
 
 ---
 
@@ -64,7 +72,7 @@ Deinstallieren: `pkg delete os-fritzbox-failover`
 
 ### 2. OPNsense vorbereiten
 - **System → Gateways → Konfiguration**: Kabel-Gateway (z. B. `WAN_CABLE_GW` oder `WAN_DHCP`) und Backup-Gateway (5G/LTE) müssen vorhanden sein, **Monitoring aktiviert**.
-- Beim Kabel-Gateway als **Monitor-IP die FRITZ!Box** eintragen (z. B. `192.168.0.1`) und speichern.
+- Beim Kabel-Gateway als **Monitor-IP die FRITZ!Box** eintragen (z. B. `192.168.0.1`) und **speichern**. Das Gateway muss gespeichert sein, das gilt auch für automatisch erzeugte Gateways wie `WAN_DHCP`. Das Plugin legt selbst keine Gateways an.
 - **Firewall → Einstellungen → Erweitert**: die Option „Disable force gateway“ **nicht** anhaken (Standard). Sonst weicht das Plugin für die Test-Pings auf kurzzeitige Host-Routen aus.
 - **System → Gateways → Gruppen**: Gruppe anlegen, Kabel = Tier 1, Backup = Tier 2, Auslöser „Paketverlust“ oder „Mitglied ausgefallen“.
 - Die Gateway-Gruppe in den Firewall-Regeln (LAN) als Gateway eintragen.
@@ -87,7 +95,7 @@ Deinstallieren: `pkg delete os-fritzbox-failover`
 | Fehler bis Failover | 3 | Fehlschläge in Folge bis zur Umschaltung |
 | Erfolge bis Rückschaltung | 3 | Erfolge in Folge bis zur Rückschaltung |
 
-Dann **„Verbindung testen“** klicken und anschließend **„Übernehmen“**. Der Status oben auf der Seite zeigt live, was das Plugin sieht. Meldungen landen im Systemlog (Tag `fritzfailover`).
+Dann **„Verbindung testen“** klicken und anschließend **„Übernehmen“**. Der Testmodus ist anfangs an, siehe oben. Der Status oben auf der Seite zeigt live, was das Plugin sieht. Meldungen landen im Systemlog (Tag `fritzfailover`).
 
 Wird der Dienst gestoppt oder deaktiviert, setzt das Plugin die normale Monitor-IP automatisch zurück.
 
