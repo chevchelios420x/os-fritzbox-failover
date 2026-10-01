@@ -111,6 +111,8 @@ tools/release.sh 1.1
 
 Das Skript prüft, ob `main` sauber und aktuell ist, setzt `PLUGIN_VERSION` im Makefile, committet, legt den Tag `v1.1` an und pusht beides.
 
+Ohne lokales git: auf GitHub unter **Actions → Build and release package → Run workflow** die Version (z. B. `1.1`) eintragen. Der Workflow legt Tag und Release dann selbst an. Die Version im Makefile sollte vorher passen.
+
 Die Verzeichnisstruktur entspricht dem offiziellen Plugin-Layout (`Makefile`, `pkg-descr`, `src/…`) und kann unverändert als `net/fritzbox-failover` in das opnsense/plugins-Repository übernommen werden.
 
 ## Lizenz

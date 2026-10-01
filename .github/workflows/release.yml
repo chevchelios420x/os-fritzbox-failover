@@ -7,6 +7,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 1.1). Creates tag vX.Y and the GitHub release. Leave empty for a test build without release.'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -26,8 +31,20 @@ jobs:
 
       - name: Determine version
         id: version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           ref="${GITHUB_REF_NAME}"
+          if [ -n "${INPUT_VERSION}" ]; then
+            ref="v${INPUT_VERSION}"
+            echo "tag=v${INPUT_VERSION}" >> "$GITHUB_OUTPUT"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
           case "$ref" in
             v[0-9]*) ver="${ref#v}" ;;
             [0-9]*) ver="$ref" ;;
@@ -77,9 +94,11 @@ jobs:
           path: dist/*.pkg
 
       - name: Publish release assets
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.version.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: os-fritzbox-failover ${{ steps.version.outputs.version }}
           files: dist/*.pkg
           fail_on_unmatched_files: true
