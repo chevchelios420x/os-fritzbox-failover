@@ -71,14 +71,19 @@ jobs:
             set -e
             WS="$(pwd)"
             git clone --depth 1 https://github.com/opnsense/plugins.git /tmp/opnsense-plugins
+            # the master branch marks every package as "-devel"; release builds must not
+            rm -f /tmp/opnsense-plugins/Mk/devel.mk
             mkdir -p /tmp/opnsense-plugins/net/fritzbox-failover
             cp -R plugin/Makefile plugin/pkg-descr plugin/src /tmp/opnsense-plugins/net/fritzbox-failover/
             cd /tmp/opnsense-plugins/net/fritzbox-failover
             sed -i '' "s/^PLUGIN_VERSION=.*/PLUGIN_VERSION=		${PLUGIN_VER}/" Makefile
             make package
             mkdir -p "$WS/dist"
-            cp work/pkg/os-fritzbox-failover-*.pkg "$WS/dist/"
-            cp work/pkg/os-fritzbox-failover-*.pkg "$WS/dist/os-fritzbox-failover.pkg"
+            PKGFILE="work/pkg/os-fritzbox-failover-${PLUGIN_VER}.pkg"
+            test -f "$PKGFILE" || { echo "expected $PKGFILE, got:"; ls work/pkg; exit 1; }
+            test "$(pkg query -F "$PKGFILE" '%n')" = "os-fritzbox-failover"
+            cp "$PKGFILE" "$WS/dist/"
+            cp "$PKGFILE" "$WS/dist/os-fritzbox-failover.pkg"
             pkg info -F "$WS/dist/os-fritzbox-failover.pkg"
             ls -l "$WS/dist"
 
