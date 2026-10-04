@@ -115,7 +115,7 @@ jobs:
 
             **Install / update** (SSH on the OPNsense, menu option 8 "Shell"):
             ```sh
-            fetch -o /tmp/os-fritzbox-failover.pkg https://github.com/${{ github.repository }}/releases/latest/download/os-fritzbox-failover.pkg && env IGNORE_OSVERSION=yes pkg add -f /tmp/os-fritzbox-failover.pkg && rm -f /tmp/os-fritzbox-failover.pkg
+            curl -fL --retry 3 --connect-timeout 15 --progress-bar -o /tmp/os-fritzbox-failover.pkg https://github.com/${{ github.repository }}/releases/latest/download/os-fritzbox-failover.pkg && env IGNORE_OSVERSION=yes pkg add -f /tmp/os-fritzbox-failover.pkg && rm -f /tmp/os-fritzbox-failover.pkg
             ```
             Or use `tools/Install-FritzFailover.ps1` on Windows. See the README for setup and the test mode.
           files: dist/*.pkg

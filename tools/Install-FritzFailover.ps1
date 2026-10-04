@@ -127,7 +127,7 @@ $RemoteInstall = @'
 set -e
 TMP=/tmp/os-fritzbox-failover.pkg
 echo "Lade Paket herunter ..."
-fetch -o "$TMP" "__PKG_URL__"
+curl -fL --retry 3 --connect-timeout 15 -sS -o "$TMP" "__PKG_URL__"
 echo "Installiere Paket ..."
 env IGNORE_OSVERSION=yes ASSUME_ALWAYS_YES=yes pkg add -f "$TMP"
 rm -f "$TMP"
