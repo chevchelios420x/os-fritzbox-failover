@@ -68,7 +68,7 @@ COUNTER_FILE="${RUNDIR}/fritzfailover.counters"
 STATS_FILE="${RUNDIR}/fritzfailover.stats"
 BACKOFF_FILE="${RUNDIR}/fritzfailover.tr064_backoff"
 PIDFILE="${RUNDIR}/fritzfailover.pid"
-LOCK_FILE="${RUNDIR}/fritzfailover.lock"
+LOCK_FILE="${RUNDIR}/fritzfailover.lck"
 TEST_FILE="${RUNDIR}/fritzfailover.testfailover"
 TAG="fritzfailover"
 
@@ -96,6 +96,7 @@ PING_TEXT="-"
 MESSAGE=""
 RECORD_STATS=0
 FORCE_TR064=0
+TEST_LEFT=""
 
 log()
 {
@@ -195,6 +196,9 @@ write_state()
 			    "${STATS_FILE}"
 		fi
 		printf '],'
+		if [ -n "${TEST_LEFT}" ]; then
+			printf '"test_left":%s,"test_total":%s,' "${TEST_LEFT}" "${TEST_DURATION}"
+		fi
 		printf '"last_check":"%s",' "$(date '+%Y-%m-%d %H:%M:%S')"
 		printf '"message":"%s"}\n' "$(json_escape "${MESSAGE}")"
 	} > "${STATE_FILE}.tmp" && chmod 644 "${STATE_FILE}.tmp" && mv -f "${STATE_FILE}.tmp" "${STATE_FILE}"
@@ -521,6 +525,7 @@ run_check()
 			MESSAGE="TEST FAILOVER active, switching back in ${_left} seconds"
 			TR_TEXT="-"
 			PING_TEXT="-"
+			TEST_LEFT=${_left}
 			write_state "test_failover"
 			return 0
 		fi
@@ -683,6 +688,7 @@ do_testfailover()
 	MESSAGE="TEST FAILOVER active, switching back in ${TEST_DURATION} seconds"
 	TR_TEXT="-"
 	PING_TEXT="-"
+	TEST_LEFT=${TEST_DURATION}
 	write_state "test_failover"
 	printf '{"status":"ok","duration":%s,"message":"%s"}\n' "${TEST_DURATION}" "$(json_escape "Test failover started: monitor IP of ${FF_GATEWAY} set to ${FF_BAD_MONITOR}. OPNsense should switch to the backup gateway within the dpinger loss interval. Switching back automatically in ${TEST_DURATION} seconds.")"
 }
@@ -755,20 +761,31 @@ do_test()
 
 do_state()
 {
-	if [ -f "${STATE_FILE}" ]; then
-		if [ -f "${PIDFILE}" ] && pgrep -F "${PIDFILE}" >/dev/null 2>&1; then
-			cat "${STATE_FILE}"
-		else
-			sed 's/^{"status":"[a-z]*"/{"status":"stopped"/' "${STATE_FILE}"
-		fi
-	else
+	if [ ! -f "${STATE_FILE}" ]; then
 		printf '{"status":"stopped"}\n'
+		return 0
 	fi
+	_json=$(cat "${STATE_FILE}")
+	if [ -f "${TEST_FILE}" ]; then
+		# live countdown of a running test failover
+		_end=$(cat "${TEST_FILE}" 2>/dev/null)
+		is_uint "${_end}" || _end=0
+		_left=$((_end - $(date +%s)))
+		[ "${_left}" -lt 0 ] && _left=0
+		_json=$(printf '%s\n' "${_json}" | sed "s/\"test_left\":[0-9]*/\"test_left\":${_left}/")
+	elif ! { [ -f "${PIDFILE}" ] && pgrep -F "${PIDFILE}" >/dev/null 2>&1; }; then
+		_json=$(printf '%s\n' "${_json}" | sed 's/^{"status":"[a-z_]*"/{"status":"stopped"/')
+	fi
+	printf '%s\n' "${_json}"
 }
 
+# Serialises all actions. lockf(1) from the base system holds the lock itself
+# and closes the lock descriptor in the command it runs, so long-lived
+# processes started from there (dpinger via pluginctl, the test failover
+# timer) can never inherit and keep the lock.
 locked()
 {
-	/usr/local/bin/flock -w 60 "${LOCK_FILE}" "$0" "$@"
+	/usr/bin/lockf -k -s -t 60 "${LOCK_FILE}" "$0" "$@"
 }
 
 case "${1:-}" in

@@ -38,6 +38,22 @@ POSSIBILITY OF SUCH DAMAGE.
             'unknown': ['label-default', '{{ lang._("Unknown") }}']
         };
 
+        let testEnd = 0;
+        let testTotal = 0;
+
+        function renderCountdown() {
+            if (!testEnd) {
+                return;
+            }
+            const left = Math.max(0, Math.round((testEnd - Date.now()) / 1000));
+            const pct = testTotal > 0 ? Math.round(100 * left / testTotal) : 0;
+            $('#ff_countdown_bar').css('width', pct + '%').attr('aria-valuenow', pct);
+            $('#ff_countdown_text').text(left > 0
+                ? '{{ lang._("Switching back to the cable line in") }} ' + Math.floor(left / 60) + ':' + ('0' + (left % 60)).slice(-2)
+                : '{{ lang._("Switching back now ...") }}');
+        }
+        setInterval(renderCountdown, 1000);
+
         function updateState() {
             ajaxGet('/api/fritzfailover/service/state', {}, function (data) {
                 const state = (data && data.status && stateLabels[data.status]) ? data.status : 'unknown';
@@ -48,6 +64,15 @@ POSSIBILITY OF SUCH DAMAGE.
                 $('#ff_counters').text((data.failures !== undefined ? data.failures : '-') + ' / ' + (data.successes !== undefined ? data.successes : '-'));
                 $('#ff_last').text(data.last_check || '-');
                 $('#ff_message').text(data.message || '');
+                if (state === 'test_failover' && data.test_total) {
+                    testEnd = Date.now() + (data.test_left || 0) * 1000;
+                    testTotal = data.test_total;
+                    renderCountdown();
+                    $('#ff_countdown').show();
+                } else {
+                    testEnd = 0;
+                    $('#ff_countdown').hide();
+                }
                 $('#ff_dryrun').toggle(data.dry_run === true);
                 const tbody = $('#ff_targets tbody').empty();
                 (data.targets || []).forEach(function (t) {
@@ -204,7 +229,7 @@ POSSIBILITY OF SUCH DAMAGE.
         });
 
         updateState();
-        setInterval(updateState, 5000);
+        setInterval(updateState, 3000);
     });
 </script>
 
@@ -226,6 +251,13 @@ POSSIBILITY OF SUCH DAMAGE.
                 <tr><td>{{ lang._('Info') }}</td><td id="ff_message"></td></tr>
             </tbody>
         </table>
+        <div id="ff_countdown" style="display:none; margin: 0.5em 0 1em 0;">
+            <div><b>{{ lang._('Test failover') }}:</b> <span id="ff_countdown_text"></span></div>
+            <div class="progress" style="margin: 0.3em 0 0 0;">
+                <div id="ff_countdown_bar" class="progress-bar progress-bar-danger progress-bar-striped active" role="progressbar"
+                     aria-valuemin="0" aria-valuemax="100" aria-valuenow="100" style="width: 100%;"></div>
+            </div>
+        </div>
         <button class="btn btn-danger btn-xs" id="testFailoverAct" type="button">
             <i class="fa fa-bolt fa-fw"></i> {{ lang._('Test failover (2 minutes)') }}
         </button>

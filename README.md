@@ -114,7 +114,7 @@ Dann **„Verbindung testen“** klicken und anschließend **„Übernehmen“**
 
 ### Test-Failover
 
-Der Button **„Test failover (2 minutes)“** löst einen **echten** Failover für 2 Minuten aus, auf genau demselben Weg wie bei einem Ausfall: Die Monitor-IP des Kabel-Gateways wird auf die Fake-Monitor-IP gesetzt, dpinger meldet 100 % Verlust, OPNsense schaltet nativ auf das Backup. Nach 2 Minuten wird die normale Monitor-IP gesetzt und OPNsense schaltet zurück. Das funktioniert auch im Testmodus. Während des Tests trifft das Plugin keine eigenen Entscheidungen. Stoppen des Dienstes oder „Normale Monitor-IP wiederherstellen“ beendet den Test sofort.
+Der Button **„Test failover (2 minutes)“** löst einen **echten** Failover für 2 Minuten aus, auf genau demselben Weg wie bei einem Ausfall: Die Monitor-IP des Kabel-Gateways wird auf die Fake-Monitor-IP gesetzt, dpinger meldet 100 % Verlust, OPNsense schaltet nativ auf das Backup. Nach 2 Minuten wird die normale Monitor-IP gesetzt und OPNsense schaltet zurück. Das funktioniert auch im Testmodus. Während des Tests trifft das Plugin keine eigenen Entscheidungen. Stoppen des Dienstes oder „Normale Monitor-IP wiederherstellen“ beendet den Test sofort. Während des Tests zeigt die Statusseite einen Countdown mit Fortschrittsbalken.
 
 Mit dem Button **„Normale Monitor-IP wiederherstellen“** auf der Statusseite setzt du die normale Monitor-IP jederzeit sofort zurück.
 

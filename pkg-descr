@@ -12,6 +12,12 @@ is healthy again the normal monitor IP is restored.
 Plugin Changelog
 ================
 
+1.3
+
+* Fix: checks stopped after a failover because dpinger inherited the
+  internal lock (now lockf(1), which never passes the lock on)
+* Countdown with progress bar during a test failover
+
 1.2
 
 * Test failover button: real failover for 2 minutes, same path as an outage
