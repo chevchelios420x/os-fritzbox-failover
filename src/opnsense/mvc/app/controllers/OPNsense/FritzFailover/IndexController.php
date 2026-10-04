@@ -41,6 +41,10 @@ class IndexController extends \OPNsense\Base\IndexController
     public function indexAction()
     {
         $this->view->generalForm = $this->getForm('general');
+        /* version and project page from the package metadata written at build time */
+        $info = json_decode((string)@file_get_contents('/usr/local/opnsense/version/fritzbox-failover'), true);
+        $this->view->pluginVersion = is_array($info) && !empty($info['product_version']) ? $info['product_version'] : '?';
+        $this->view->pluginWebsite = 'https://github.com/chevchelios420x/os-fritzbox-failover';
         $this->view->pick('OPNsense/FritzFailover/index');
     }
 }

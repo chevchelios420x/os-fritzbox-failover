@@ -235,6 +235,11 @@ POSSIBILITY OF SUCH DAMAGE.
 
 <div class="content-box" style="padding-bottom: 1.5em;">
     <div class="col-md-12">
+        <div class="pull-right" style="margin-top: 1em;">
+            <a href="{{ pluginWebsite }}" target="_blank" rel="noopener noreferrer" title="{{ lang._('Project page and releases on GitHub') }}">
+                <i class="fa fa-github fa-fw"></i> os-fritzbox-failover {{ pluginVersion }}
+            </a>
+        </div>
         <div id="ff_dryrun" class="alert alert-warning" role="alert" style="display:none; margin-top: 1em;">
             <b>{{ lang._('TEST MODE active:') }}</b>
             {{ lang._('All checks run, but nothing on OPNsense is changed. The state below shows what the plugin would do. Switch test mode off in the settings to activate the failover.') }}
