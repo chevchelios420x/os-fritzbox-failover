@@ -57,7 +57,7 @@
         <id>fritzfailover.gateway</id>
         <label>Cable gateway name</label>
         <type>text</type>
-        <help>Exact name of the cable gateway as shown under System &gt; Gateways &gt; Configuration, e.g. WAN_CABLE_GW or WAN_DHCP. Its monitor IP is changed automatically by this plugin.</help>
+        <help>The cable gateway from System &gt; Gateways &gt; Configuration. Pick it from the list; only saved gateways can be managed (automatically created ones such as WAN_DHCP must be opened and saved once). Its monitor IP is changed automatically by this plugin.</help>
     </field>
     <field>
         <id>fritzfailover.interface</id>

@@ -40,7 +40,7 @@
 # Test mode (dry run): all checks run and every lost ping is recorded per test
 # address, but nothing on OPNsense is changed; the decision is only simulated.
 #
-# usage: fritzbox_failover.sh run|check|test|state|stopped|restore|resetstats
+# usage: fritzbox_failover.sh run|check|test|state|stopped|restore|resetstats|testfailover
 #
 #   run         monitor loop (started by rc.d via daemon(8))
 #   check       single check including the decision
@@ -51,6 +51,11 @@
 #               a plain restart keeps an active failover
 #   restore     unconditionally restore the normal monitor IP
 #   resetstats  clear the per test address statistics
+#   testfailover      start a real test failover for TEST_DURATION seconds:
+#                     exactly the same switch as a real failover (monitor IP
+#                     changed, dpinger restarted, OPNsense fails over natively),
+#                     followed by the same switch back
+#   testfailover-end  end a running test failover (called by its timer)
 
 set -u
 PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
@@ -64,12 +69,15 @@ STATS_FILE="${RUNDIR}/fritzfailover.stats"
 BACKOFF_FILE="${RUNDIR}/fritzfailover.tr064_backoff"
 PIDFILE="${RUNDIR}/fritzfailover.pid"
 LOCK_FILE="${RUNDIR}/fritzfailover.lock"
+TEST_FILE="${RUNDIR}/fritzfailover.testfailover"
 TAG="fritzfailover"
 
 # no switching during the first seconds after boot (WAN may still be coming up)
 STARTUP_GRACE=120
 # pause TR-064 logins after a failed login to avoid a FRITZ!Box login lockout
 TR064_BACKOFF=900
+# duration of a manually started test failover
+TEST_DURATION=120
 
 TR064_SERVICE="urn:dslforum-org:service:WANIPConnection:1"
 TR064_URL_PATH="/upnp/control/wanipconnection1"
@@ -504,6 +512,23 @@ run_check()
 		return 1
 	fi
 
+	if [ -f "${TEST_FILE}" ]; then
+		_end=$(cat "${TEST_FILE}" 2>/dev/null)
+		is_uint "${_end}" || _end=0
+		_left=$((_end - $(date +%s)))
+		if [ "${_left}" -gt 0 ]; then
+			# no decisions while a test failover runs, it ends on its own
+			MESSAGE="TEST FAILOVER active, switching back in ${_left} seconds"
+			TR_TEXT="-"
+			PING_TEXT="-"
+			write_state "test_failover"
+			return 0
+		fi
+		# timer missed (e.g. killed): end the test here
+		do_testfailover_end
+		load_gateway || return 1
+	fi
+
 	load_counters
 	REAL_MONITOR="${GW_MONITOR}"
 	if [ "${FF_DRY_RUN}" = "1" ]; then
@@ -589,7 +614,7 @@ do_restore()
 		FF_DRY_RUN=0
 		apply_monitor "${FF_GOOD_MONITOR}"
 	fi
-	rm -f "${COUNTER_FILE}"
+	rm -f "${COUNTER_FILE}" "${TEST_FILE}"
 	FAILS=0
 	OKS=0
 	MESSAGE="normal monitor IP active"
@@ -607,7 +632,8 @@ do_stopped()
 		log_err "monitor stopped, configuration unreadable, gateway left unchanged"
 		return 0
 	fi
-	if [ "${FF_ENABLED}" != "1" ] || [ "${FF_DRY_RUN}" = "1" ]; then
+	if [ "${FF_ENABLED}" != "1" ] || [ "${FF_DRY_RUN}" = "1" ] || [ -f "${TEST_FILE}" ]; then
+		# a test failover must never outlive the monitor
 		do_restore
 		return 0
 	fi
@@ -619,6 +645,66 @@ do_stopped()
 		MESSAGE="monitor stopped"
 	fi
 	write_state "stopped"
+	return 0
+}
+
+# Starts a test failover: the very same switch as a real failover. The fake
+# monitor IP is written to the gateway, its dpinger restarted, and OPNsense's
+# gateway watcher fails over natively. A detached timer ends the test after
+# TEST_DURATION seconds with the very same switch back. Works in test mode
+# too, because it is an explicit request by the user.
+do_testfailover()
+{
+	if ! load_config || ! load_gateway; then
+		printf '{"status":"failed","message":"configuration or gateway not readable"}\n'
+		return 0
+	fi
+	if [ "${GW_PERSISTED}" != "1" ]; then
+		printf '{"status":"failed","message":"%s"}\n' "$(json_escape "Gateway ${FF_GATEWAY} is not saved yet: open it once under System > Gateways and click Save.")"
+		return 0
+	fi
+	if [ "${GW_MONITOR_DISABLED}" = "1" ]; then
+		printf '{"status":"failed","message":"%s"}\n' "$(json_escape "Monitoring is disabled on gateway ${FF_GATEWAY}.")"
+		return 0
+	fi
+	if [ "${GW_MONITOR}" = "${FF_BAD_MONITOR}" ] || [ -f "${TEST_FILE}" ]; then
+		printf '{"status":"failed","message":"A failover is already active."}\n'
+		return 0
+	fi
+	echo $(($(date +%s) + TEST_DURATION)) > "${TEST_FILE}"
+	log "TEST FAILOVER started by the user for ${TEST_DURATION} seconds, setting monitor ${FF_BAD_MONITOR} on ${FF_GATEWAY}"
+	FF_DRY_RUN=0
+	if ! apply_monitor "${FF_BAD_MONITOR}"; then
+		rm -f "${TEST_FILE}"
+		printf '{"status":"failed","message":"could not change the monitor IP, see the system log"}\n'
+		return 0
+	fi
+	/usr/sbin/daemon -f /bin/sh -c "sleep ${TEST_DURATION}; exec $0 testfailover-end"
+	MESSAGE="TEST FAILOVER active, switching back in ${TEST_DURATION} seconds"
+	TR_TEXT="-"
+	PING_TEXT="-"
+	write_state "test_failover"
+	printf '{"status":"ok","duration":%s,"message":"%s"}\n' "${TEST_DURATION}" "$(json_escape "Test failover started: monitor IP of ${FF_GATEWAY} set to ${FF_BAD_MONITOR}. OPNsense should switch to the backup gateway within the dpinger loss interval. Switching back automatically in ${TEST_DURATION} seconds.")"
+}
+
+# Ends a test failover with the very same switch back as a real recovery.
+do_testfailover_end()
+{
+	[ -f "${TEST_FILE}" ] || return 0
+	rm -f "${TEST_FILE}" "${COUNTER_FILE}"
+	load_config || return 0
+	load_gateway || return 0
+	if [ "${GW_MONITOR}" = "${FF_BAD_MONITOR}" ]; then
+		log "TEST FAILOVER finished, restoring monitor ${FF_GOOD_MONITOR} on ${FF_GATEWAY}"
+		_dry=${FF_DRY_RUN}
+		FF_DRY_RUN=0
+		apply_monitor "${FF_GOOD_MONITOR}"
+		FF_DRY_RUN=${_dry}
+	fi
+	MESSAGE="test failover finished, switched back to cable"
+	TR_TEXT="-"
+	PING_TEXT="-"
+	write_state "ok"
 	return 0
 }
 
@@ -722,6 +808,18 @@ restore-locked)
 resetstats)
 	rm -f "${STATS_FILE}"
 	;;
+testfailover)
+	locked testfailover-locked
+	;;
+testfailover-locked)
+	do_testfailover
+	;;
+testfailover-end)
+	locked testfailover-end-locked
+	;;
+testfailover-end-locked)
+	do_testfailover_end
+	;;
 test)
 	locked test-locked
 	;;
@@ -732,7 +830,7 @@ state)
 	do_state
 	;;
 *)
-	echo "usage: $0 run|check|test|state|stopped|restore|resetstats" >&2
+	echo "usage: $0 run|check|test|state|stopped|restore|resetstats|testfailover" >&2
 	exit 2
 	;;
 esac

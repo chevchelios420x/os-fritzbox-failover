@@ -12,6 +12,13 @@ is healthy again the normal monitor IP is restored.
 Plugin Changelog
 ================
 
+1.2
+
+* Test failover button: real failover for 2 minutes, same path as an outage
+* Gateway selection from a dropdown of the found gateways
+* Better readable loss statistics
+* Install command uses curl instead of fetch
+
 1.1
 
 * Restarting the service ("Apply", reboot, update) keeps an active failover

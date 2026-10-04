@@ -70,6 +70,33 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
+     * start a real test failover (same switch as a real failover, ends automatically)
+     * @return array
+     */
+    public function testfailoverAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['status' => 'failed', 'message' => 'POST required'];
+        }
+        $response = trim((new Backend())->configdRun('fritzfailover testfailover'));
+        $result = json_decode($response, true);
+        if (!is_array($result)) {
+            return ['status' => 'failed', 'message' => $response];
+        }
+        return $result;
+    }
+
+    /**
+     * list IPv4 gateways for the gateway dropdown
+     * @return array
+     */
+    public function gatewaysAction()
+    {
+        $result = json_decode(trim((new Backend())->configdRun('fritzfailover gateways')), true);
+        return ['gateways' => is_array($result) ? $result : []];
+    }
+
+    /**
      * reset the per test address statistics
      * @return array
      */

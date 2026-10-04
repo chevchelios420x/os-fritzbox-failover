@@ -33,6 +33,7 @@ POSSIBILITY OF SUCH DAMAGE.
             'failover': ['label-danger', '{{ lang._("Failover active (backup line in use)") }}'],
             'recovering': ['label-info', '{{ lang._("Cable line back, waiting before switching back") }}'],
             'starting': ['label-info', '{{ lang._("Starting up (measuring only)") }}'],
+            'test_failover': ['label-danger', '{{ lang._("TEST FAILOVER active (backup line in use)") }}'],
             'stopped': ['label-default', '{{ lang._("Monitor not running") }}'],
             'unknown': ['label-default', '{{ lang._("Unknown") }}']
         };
@@ -54,13 +55,22 @@ POSSIBILITY OF SUCH DAMAGE.
                     const row = $('<tr/>');
                     row.append($('<td/>').text(t.target));
                     row.append($('<td/>').text(t.checks));
-                    row.append($('<td/>').text(t.lost + ' / ' + t.sent + ' (' + pct + ' %)'));
-                    row.append($('<td/>').text(t.failed_checks));
+                    const lostCell = $('<td/>');
+                    if (t.lost > 0) {
+                        lostCell.append($('<span class="label label-warning"/>').text(t.lost + ' / ' + t.sent + ' (' + pct + ' %)'));
+                    } else {
+                        lostCell.text(t.lost + ' / ' + t.sent + ' (' + pct + ' %)');
+                    }
+                    row.append(lostCell);
+                    const failCell = $('<td/>');
+                    if (t.failed_checks > 0) {
+                        failCell.append($('<span class="label label-danger"/>').text(t.failed_checks));
+                    } else {
+                        failCell.text(t.failed_checks);
+                    }
+                    row.append(failCell);
                     row.append($('<td/>').text(t.last_loss || '-'));
                     row.append($('<td/>').text(t.since || '-'));
-                    if (t.failed_checks > 0) {
-                        row.addClass('warning');
-                    }
                     tbody.append(row);
                 });
                 if (!(data.targets || []).length) {
@@ -69,10 +79,44 @@ POSSIBILITY OF SUCH DAMAGE.
             });
         }
 
+        function setupGatewayDropdown() {
+            const input = $('#fritzfailover\\.gateway');
+            ajaxGet('/api/fritzfailover/service/gateways', {}, function (data) {
+                const gateways = (data && data.gateways) || [];
+                if (!input.length || !gateways.length) {
+                    return;
+                }
+                $('#ff_gateway_select').remove();
+                const select = $('<select id="ff_gateway_select" class="form-control"/>');
+                const current = input.val();
+                let found = false;
+                gateways.forEach(function (gw) {
+                    let text = gw.name + ' (' + (gw.interface || '?') + (gw.address ? ', ' + gw.address : '') + ')';
+                    if (!gw.saved) {
+                        text += ' - {{ lang._("not saved yet, open it once under System > Gateways and click Save") }}';
+                    }
+                    const opt = $('<option/>').val(gw.name).text(text);
+                    if (gw.name === current) {
+                        opt.prop('selected', true);
+                        found = true;
+                    }
+                    select.append(opt);
+                });
+                if (current && !found) {
+                    select.prepend($('<option/>').val(current).text(current + ' - {{ lang._("not found") }}').prop('selected', true));
+                }
+                select.on('change', function () {
+                    input.val($(this).val()).trigger('change');
+                });
+                input.val(select.val()).hide().after(select);
+            });
+        }
+
         mapDataToFormUI({'frm_general': '/api/fritzfailover/settings/get'}).done(function () {
             formatTokenizersUI();
             $('.selectpicker').selectpicker('refresh');
             updateServiceControlUI('fritzfailover');
+            setupGatewayDropdown();
         });
 
         $('#reconfigureAct').SimpleActionButton({
@@ -89,6 +133,27 @@ POSSIBILITY OF SUCH DAMAGE.
                 updateServiceControlUI('fritzfailover');
                 setTimeout(updateState, 2000);
             }
+        });
+
+        $('#testFailoverAct').click(function () {
+            stdDialogConfirm(
+                '{{ lang._("Test failover") }}',
+                '{{ lang._("This performs a REAL failover for 2 minutes, exactly like during an outage: the monitor IP of the cable gateway is set to the fake monitor IP, OPNsense detects 100% loss and switches to the backup gateway. After 2 minutes the normal monitor IP is restored and OPNsense switches back. Connections may be interrupted briefly. Start now?") }}',
+                '{{ lang._("Start test failover") }}',
+                '{{ lang._("Cancel") }}',
+                function () {
+                    ajaxCall('/api/fritzfailover/service/testfailover', {}, function (data) {
+                        BootstrapDialog.show({
+                            type: (data && data.status === 'ok') ? BootstrapDialog.TYPE_INFO : BootstrapDialog.TYPE_WARNING,
+                            title: '{{ lang._("Test failover") }}',
+                            message: $('<div/>').text((data && data.message) || ''),
+                            buttons: [{label: '{{ lang._("Close") }}', action: function (d) { d.close(); }}]
+                        });
+                        updateState();
+                    });
+                },
+                'danger'
+            );
         });
 
         $('#restoreAct').click(function () {
@@ -161,6 +226,9 @@ POSSIBILITY OF SUCH DAMAGE.
                 <tr><td>{{ lang._('Info') }}</td><td id="ff_message"></td></tr>
             </tbody>
         </table>
+        <button class="btn btn-danger btn-xs" id="testFailoverAct" type="button">
+            <i class="fa fa-bolt fa-fw"></i> {{ lang._('Test failover (2 minutes)') }}
+        </button>
         <button class="btn btn-default btn-xs" id="restoreAct" type="button">
             <i class="fa fa-undo fa-fw"></i> {{ lang._('Restore normal monitor IP') }}
         </button>

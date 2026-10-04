@@ -32,7 +32,7 @@
  * shell-safe way and changes the gateway monitor IP through the native
  * OPNsense\Routing\Gateways model.
  *
- * usage: fritzfailover_helper.php config|curlcfg|gwinfo|setmonitor <ipv4>
+ * usage: fritzfailover_helper.php config|curlcfg|gwinfo|gwlist|setmonitor <ipv4>
  */
 
 require_once('script/load_phalcon.php');
@@ -141,6 +141,28 @@ switch ($cmd) {
         emit('GW_FORCE_GW', empty((string)$sys->pf_disable_force_gw) ? '1' : '0');
         break;
 
+    case 'gwlist':
+        /* IPv4 gateways for the GUI dropdown; only saved ones can be managed */
+        $persisted = [];
+        foreach ((new Gateways())->gateway_item->iterateItems() as $item) {
+            $persisted[(string)$item->name] = true;
+        }
+        $list = [];
+        foreach ((new Gateways())->getGateways() as $gw) {
+            if (empty($gw['name']) || ($gw['ipprotocol'] ?? 'inet') !== 'inet') {
+                continue;
+            }
+            $list[] = [
+                'name' => $gw['name'],
+                'interface' => $gw['if'] ?? '',
+                'address' => $gw['gateway'] ?? '',
+                'monitor' => $gw['monitor'] ?? '',
+                'saved' => isset($persisted[$gw['name']]),
+            ];
+        }
+        echo json_encode($list) . "\n";
+        break;
+
     case 'setmonitor':
         /* only the monitor IP of an existing, persisted gateway is changed, nothing is ever created */
         $ip = $argv[2] ?? '';
@@ -165,5 +187,5 @@ switch ($cmd) {
         break;
 
     default:
-        fail('usage: fritzfailover_helper.php config|curlcfg|gwinfo|setmonitor <ipv4>', 2);
+        fail('usage: fritzfailover_helper.php config|curlcfg|gwinfo|gwlist|setmonitor <ipv4>', 2);
 }

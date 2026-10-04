@@ -90,7 +90,7 @@ Deinstallieren: `pkg delete os-fritzbox-failover`. Dabei wird der Dienst gestopp
 | FRITZ!Box IP-Adresse | `192.168.0.1` | Adresse der FRITZ!Box aus Sicht der OPNsense |
 | Erkennung | FRITZ!Box + Ping | wie ein Ausfall erkannt wird (siehe oben) |
 | TR-064 Benutzer / Passwort | leer | optional; leer = Status per UPnP ohne Anmeldung |
-| Kabel-Gateway-Name | `WAN_CABLE_GW` | exakt wie unter System → Gateways |
+| Kabel-Gateway | `WAN_CABLE_GW` | Auswahl aus den gefundenen Gateways |
 | Kabel-Schnittstelle | Automatisch | z. B. WAN (`vtnet5`); automatisch = Schnittstelle des Gateways |
 | Normale Monitor-IP | `192.168.0.1` | die FRITZ!Box, gleiche Adresse wie das Gateway |
 | Fake-Monitor-IP | `192.0.2.1` | antwortet nie, löst den Failover aus |
@@ -111,6 +111,10 @@ Dann **„Verbindung testen“** klicken und anschließend **„Übernehmen“**
 | Plugin deaktivieren, Testmodus einschalten | normale Monitor-IP wird zurückgesetzt, OPNsense schaltet zurück aufs Kabel |
 | Plugin deinstallieren | normale Monitor-IP wird zurückgesetzt |
 | Dienst nur gestoppt (Plugin bleibt aktiv) | **bleibt erhalten** (Internet läuft weiter über das Backup). Die Statusseite zeigt das an. |
+
+### Test-Failover
+
+Der Button **„Test failover (2 minutes)“** löst einen **echten** Failover für 2 Minuten aus, auf genau demselben Weg wie bei einem Ausfall: Die Monitor-IP des Kabel-Gateways wird auf die Fake-Monitor-IP gesetzt, dpinger meldet 100 % Verlust, OPNsense schaltet nativ auf das Backup. Nach 2 Minuten wird die normale Monitor-IP gesetzt und OPNsense schaltet zurück. Das funktioniert auch im Testmodus. Während des Tests trifft das Plugin keine eigenen Entscheidungen. Stoppen des Dienstes oder „Normale Monitor-IP wiederherstellen“ beendet den Test sofort.
 
 Mit dem Button **„Normale Monitor-IP wiederherstellen“** auf der Statusseite setzt du die normale Monitor-IP jederzeit sofort zurück.
 
