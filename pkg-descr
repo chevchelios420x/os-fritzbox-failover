@@ -12,6 +12,10 @@ is healthy again the normal monitor IP is restored.
 Plugin Changelog
 ================
 
+1.8
+
+* Pushover messages include the current public IPv4 address
+
 1.7
 
 * Keep measuring the cable line during a test failover (no decisions)

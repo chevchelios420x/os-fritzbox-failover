@@ -312,6 +312,10 @@ switch ($cmd) {
         }
         $title = $cmd === 'pushtest' ? 'OPNsense FRITZ!Box failover' : ($argv[2] ?? 'OPNsense FRITZ!Box failover');
         $message = $cmd === 'pushtest' ? 'Test notification: Pushover works.' : ($argv[3] ?? '');
+        /* public IPv4 the firewall is currently seen with (i.e. of the line in use) */
+        list($ipinfo, ) = http_json('GET', 'https://api.ipify.org?format=json');
+        $pubip = is_array($ipinfo) && is_ipv4($ipinfo['ip'] ?? '') ? $ipinfo['ip'] : 'unknown';
+        $message .= "\nPublic IP: {$pubip}";
         list($data, $err) = http_json('POST', 'https://api.pushover.net/1/messages.json', [], null, [
             'token' => (string)$mdl->po_token,
             'user' => (string)$mdl->po_user,

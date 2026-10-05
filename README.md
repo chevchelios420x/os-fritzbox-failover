@@ -130,7 +130,7 @@ Der Eintrag wird als CNAME „DNS only“ (nicht proxied) gesetzt; existiert er 
 
 ### Push-Benachrichtigung per Pushover (optional)
 
-Bei jedem Failover (und auf Wunsch bei der Rückschaltung) kommt eine Pushover-Nachricht mit Uhrzeit und Grund. Nötig sind ein **Application API Token** (pushover.net → Your Applications → Create an Application) und dein **User Key**. Mit **„Send test push“** prüfst du die Einstellungen.
+Bei jedem Failover (und auf Wunsch bei der Rückschaltung) kommt eine Pushover-Nachricht mit Uhrzeit, Grund und der aktuellen öffentlichen IPv4-Adresse (ermittelt über api.ipify.org im Moment des Versands, also die der gerade genutzten Leitung). Nötig sind ein **Application API Token** (pushover.net → Your Applications → Create an Application) und dein **User Key**. Mit **„Send test push“** prüfst du die Einstellungen.
 
 **Wichtig für beides:** Direkt beim Failover ist das Kabel tot, und die Firewall selbst erreicht Cloudflare/Pushover erst, wenn OPNsense umgeschaltet hat. Das Plugin versucht es deshalb bei jeder Prüfung erneut, bis es klappt. Damit die Firewall selbst über das Backup ins Internet kommt, unter **System → Einstellungen → Allgemein** „Allow default gateway switching“ aktivieren. Beides passiert nur bei echten Umschaltungen und beim Test-Failover, nie im Testmodus.
 
