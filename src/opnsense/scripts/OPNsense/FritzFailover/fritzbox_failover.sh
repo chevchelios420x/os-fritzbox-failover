@@ -641,10 +641,13 @@ run_check()
 		is_uint "${_end}" || _end=0
 		_left=$((_end - $(date +%s)))
 		if [ "${_left}" -gt 0 ]; then
-			# no decisions while a test failover runs, it ends on its own
-			MESSAGE="TEST FAILOVER active, switching back in ${_left} seconds"
-			TR_TEXT="-"
-			PING_TEXT="-"
+			# keep measuring (shows that the cable line is still probed through
+			# the cable while the firewall uses the backup), but no decisions
+			tr064_check
+			RECORD_STATS=1
+			probe_ping
+			RECORD_STATS=0
+			MESSAGE="TEST FAILOVER active, no decisions until it ends (cable check: $(evaluate))"
 			TEST_LEFT=${_left}
 			write_state "test_failover"
 			return 0

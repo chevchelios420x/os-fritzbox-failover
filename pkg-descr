@@ -12,6 +12,10 @@ is healthy again the normal monitor IP is restored.
 Plugin Changelog
 ================
 
+1.7
+
+* Keep measuring the cable line during a test failover (no decisions)
+
 1.6
 
 * Optional Cloudflare DNS switch of a CNAME (e.g. WireGuard host name)
