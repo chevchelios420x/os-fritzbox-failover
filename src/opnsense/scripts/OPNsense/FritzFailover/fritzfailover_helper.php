@@ -253,6 +253,7 @@ switch ($cmd) {
         emit('FF_CF_ENABLED', (string)$mdl->cf_enabled);
         emit('FF_PO_ENABLED', (string)$mdl->po_enabled);
         emit('FF_PO_FAILBACK', (string)$mdl->po_failback);
+        emit('FF_PO_DELAY', (int)(string)$mdl->po_delay);
         break;
 
     case 'curlcfg':

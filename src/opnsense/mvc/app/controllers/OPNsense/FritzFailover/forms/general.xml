@@ -202,6 +202,12 @@
         <help>Web services that return your public IPv4 address as plain text; the address is added to every message. They are asked in this order until one answers, always via IPv4. Enter at least two, in case one is down. Default: https://ifconfig.me/ip and https://ip.me.</help>
     </field>
     <field>
+        <id>fritzfailover.po_delay</id>
+        <label>Notification delay (seconds)</label>
+        <type>text</type>
+        <help>Extra wait after OPNsense reported the switch before the message is sent, so routing has settled and the public IP of the new line is shown. 3 to 30 seconds, default 5.</help>
+    </field>
+    <field>
         <id>fritzfailover.po_failback</id>
         <label>Also notify when switching back</label>
         <type>checkbox</type>

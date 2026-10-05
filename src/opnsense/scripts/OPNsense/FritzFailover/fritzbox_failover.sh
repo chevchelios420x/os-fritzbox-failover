@@ -533,6 +533,7 @@ push_sync()
 		return 0
 	fi
 	_now=$(date +%s)
+	_slept=""
 	_cable=$(${HELPER} gwstatus 2>/dev/null | awk '{ print $1 }')
 	_keep="${PUSH_QUEUE_FILE}.tmp"
 	: > "${_keep}"
@@ -554,6 +555,13 @@ push_sync()
 				continue
 			fi
 			_note=" (note: OPNsense did not report the expected gateway state within 5 minutes, current state: ${_cable:-unknown})"
+		fi
+		if [ "${_ready}" = "1" ] && [ -z "${_slept:-}" ]; then
+			# let routing settle after OPNsense switched (once per run)
+			_d=${FF_PO_DELAY:-5}
+			is_uint "${_d}" || _d=5
+			sleep "${_d}"
+			_slept=1
 		fi
 		_when=$(date -r "${_ts}" '+%H:%M:%S')
 		if _out=$(${HELPER} pushover "${_title}" "${_when}: ${_msg}${_note}" "${_kind}" 2>&1); then

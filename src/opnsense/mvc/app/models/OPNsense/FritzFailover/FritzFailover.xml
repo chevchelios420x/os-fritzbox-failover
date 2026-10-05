@@ -159,6 +159,13 @@
             <MaskPerItem>Y</MaskPerItem>
             <ValidationMessage>Please enter URLs like https://ifconfig.me/ip that return the plain IP address.</ValidationMessage>
         </pubip_services>
+        <po_delay type="IntegerField">
+            <Default>5</Default>
+            <Required>Y</Required>
+            <MinimumValue>3</MinimumValue>
+            <MaximumValue>30</MaximumValue>
+            <ValidationMessage>Choose a value between 3 and 30 seconds.</ValidationMessage>
+        </po_delay>
         <po_failback type="BooleanField">
             <Default>1</Default>
             <Required>Y</Required>

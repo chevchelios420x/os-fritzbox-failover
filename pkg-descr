@@ -12,6 +12,10 @@ is healthy again the normal monitor IP is restored.
 Plugin Changelog
 ================
 
+1.11
+
+* Configurable notification delay after the switch (3-30 s, default 5)
+
 1.10
 
 * Push notifications wait until OPNsense really switched (cable gateway
