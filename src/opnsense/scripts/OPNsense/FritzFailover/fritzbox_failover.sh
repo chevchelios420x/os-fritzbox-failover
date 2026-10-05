@@ -74,6 +74,10 @@ TEST_FILE="${RUNDIR}/fritzfailover.testfailover"
 HISTORY_DIR="/var/db/fritzfailover"
 HISTORY_FILE="${HISTORY_DIR}/history"
 HISTORY_KEEP=50
+# desired Cloudflare DNS target (normal|failover) until the update succeeded
+CF_PENDING_FILE="${RUNDIR}/fritzfailover.cf_pending"
+# Pushover messages not delivered yet: "<epoch><TAB><title><TAB><message>"
+PUSH_QUEUE_FILE="${RUNDIR}/fritzfailover.push_queue"
 TAG="fritzfailover"
 
 # no switching during the first seconds after boot (WAN may still be coming up)
@@ -493,6 +497,80 @@ evaluate()
 	fi
 }
 
+# Cloudflare DNS: brings the record to the pending target; retried on every
+# check until it succeeds, so a temporary API problem is caught up later.
+cf_sync()
+{
+	[ -f "${CF_PENDING_FILE}" ] || return 0
+	if [ "${FF_CF_ENABLED:-0}" != "1" ]; then
+		rm -f "${CF_PENDING_FILE}"
+		return 0
+	fi
+	_want=$(cat "${CF_PENDING_FILE}" 2>/dev/null)
+	case "${_want}" in normal|failover) ;; *) rm -f "${CF_PENDING_FILE}"; return 0 ;; esac
+	if _out=$(${HELPER} cfsync "${_want}" 2>&1); then
+		rm -f "${CF_PENDING_FILE}"
+		log "Cloudflare: ${_out}"
+		case "${_out}" in *"now points"*) record_event dns "${_out}" ;; esac
+	else
+		log_err "Cloudflare DNS update (${_want}) failed, will retry: ${_out}"
+		MESSAGE="${MESSAGE}${MESSAGE:+; }Cloudflare DNS update failed, retrying: ${_out}"
+	fi
+}
+
+# Sends queued Pushover messages; undelivered ones stay queued and are
+# retried on every check (right after a failover the firewall itself may
+# still be routing via the dead line). Messages older than a day are dropped.
+push_sync()
+{
+	[ -s "${PUSH_QUEUE_FILE}" ] || return 0
+	if [ "${FF_PO_ENABLED:-0}" != "1" ]; then
+		rm -f "${PUSH_QUEUE_FILE}"
+		return 0
+	fi
+	_now=$(date +%s)
+	_keep="${PUSH_QUEUE_FILE}.tmp"
+	: > "${_keep}"
+	_tab=$(printf '\t')
+	while IFS="${_tab}" read -r _ts _title _msg; do
+		is_uint "${_ts}" || continue
+		[ $((_now - _ts)) -gt 86400 ] && continue
+		_when=$(date -r "${_ts}" '+%H:%M:%S')
+		if _out=$(${HELPER} pushover "${_title}" "${_when}: ${_msg}" 2>&1); then
+			log "Pushover: sent '${_title}'"
+		else
+			log_err "Pushover notification failed, will retry: ${_out}"
+			printf '%s\t%s\t%s\n' "${_ts}" "${_title}" "${_msg}" >> "${_keep}"
+		fi
+	done < "${PUSH_QUEUE_FILE}"
+	mv -f "${_keep}" "${PUSH_QUEUE_FILE}"
+	[ -s "${PUSH_QUEUE_FILE}" ] || rm -f "${PUSH_QUEUE_FILE}"
+}
+
+# Side effects of a real switch: Cloudflare DNS and Pushover. Never in test
+# mode. $1 = failover|failback, $2 = text for the notification.
+notify_switch()
+{
+	[ "${FF_DRY_RUN}" = "1" ] && return 0
+	if [ "${FF_CF_ENABLED:-0}" = "1" ]; then
+		_t=normal
+		[ "$1" = "failover" ] && _t=failover
+		echo "${_t}" > "${CF_PENDING_FILE}"
+		cf_sync
+	fi
+	if [ "${FF_PO_ENABLED:-0}" = "1" ]; then
+		if [ "$1" = "failover" ] || [ "${FF_PO_FAILBACK:-1}" = "1" ]; then
+			if [ "$1" = "failover" ]; then
+				_title="Failover: backup line active"
+			else
+				_title="Cable line active again"
+			fi
+			printf '%s\t%s\t%s\n' "$(date +%s)" "${_title}" "$(printf '%s' "$2" | tr -d '\t\n')" >> "${PUSH_QUEUE_FILE}"
+			push_sync
+		fi
+	fi
+}
+
 # Only the monitor IP of the cable gateway is changed and only its dpinger
 # instance is restarted. Routing and firewall are not touched: dpinger then
 # reports the loss (or recovery) itself and OPNsense's own gateway watcher
@@ -553,6 +631,10 @@ run_check()
 		write_state "unknown"
 		return 1
 	fi
+
+	# catch up DNS updates / notifications that failed earlier
+	cf_sync
+	push_sync
 
 	if [ -f "${TEST_FILE}" ]; then
 		_end=$(cat "${TEST_FILE}" 2>/dev/null)
@@ -616,6 +698,7 @@ run_check()
 						record_event sim_failback "$(event_detail)"
 					else
 						record_event failback "$(event_detail)"
+						notify_switch failback "Cable line ${FF_GATEWAY} is healthy again, switched back. $(event_detail)"
 					fi
 					[ "${FF_DRY_RUN}" = "1" ] && MESSAGE="TEST MODE: would switch back to cable now"
 				fi
@@ -642,6 +725,7 @@ run_check()
 						record_event sim_failover "$(event_detail)"
 					else
 						record_event failover "$(event_detail)"
+						notify_switch failover "Cable line ${FF_GATEWAY} is down, switched to the backup line. $(event_detail)"
 					fi
 					[ "${FF_DRY_RUN}" = "1" ] && MESSAGE="TEST MODE: would fail over to the backup line now"
 				fi
@@ -666,7 +750,7 @@ do_restore()
 		log "restoring monitor ${FF_GOOD_MONITOR} on ${FF_GATEWAY}"
 		record_event restore "normal monitor IP restored manually or on stop"
 		FF_DRY_RUN=0
-		apply_monitor "${FF_GOOD_MONITOR}"
+		apply_monitor "${FF_GOOD_MONITOR}" && notify_switch failback "Normal monitor IP restored on ${FF_GATEWAY}, switched back to the cable line."
 	fi
 	rm -f "${COUNTER_FILE}" "${TEST_FILE}"
 	FAILS=0
@@ -734,6 +818,7 @@ do_testfailover()
 		printf '{"status":"failed","message":"could not change the monitor IP, see the system log"}\n'
 		return 0
 	fi
+	notify_switch failover "TEST FAILOVER started by the user for ${TEST_DURATION} seconds on ${FF_GATEWAY}."
 	/usr/sbin/daemon -f /bin/sh -c "sleep ${TEST_DURATION}; exec $0 testfailover-end"
 	MESSAGE="TEST FAILOVER active, switching back in ${TEST_DURATION} seconds"
 	TR_TEXT="-"
@@ -755,7 +840,7 @@ do_testfailover_end()
 		record_event test_end "test failover finished"
 		_dry=${FF_DRY_RUN}
 		FF_DRY_RUN=0
-		apply_monitor "${FF_GOOD_MONITOR}"
+		apply_monitor "${FF_GOOD_MONITOR}" && notify_switch failback "TEST FAILOVER finished on ${FF_GATEWAY}, switched back to the cable line."
 		FF_DRY_RUN=${_dry}
 	fi
 	MESSAGE="test failover finished, switched back to cable"

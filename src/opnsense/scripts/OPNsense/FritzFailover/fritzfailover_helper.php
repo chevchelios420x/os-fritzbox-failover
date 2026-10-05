@@ -33,6 +33,7 @@
  * OPNsense\Routing\Gateways model.
  *
  * usage: fritzfailover_helper.php config|curlcfg|gwinfo|gwlist|setmonitor <ipv4>
+ *        cfsync normal|failover | cfcheck | pushover <title> <message> | pushtest
  */
 
 require_once('script/load_phalcon.php');
@@ -94,6 +95,82 @@ function find_persisted_gateway(Gateways $gwmdl, $name)
     return null;
 }
 
+/* HTTPS request with JSON response; credentials only live in this process */
+function http_json($method, $url, $headers = [], $body = null, $form = null)
+{
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_CUSTOMREQUEST => $method,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_TIMEOUT => 10,
+        CURLOPT_HTTPHEADER => $headers,
+    ]);
+    if ($body !== null) {
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
+    } elseif ($form !== null) {
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($form));
+    }
+    $raw = curl_exec($ch);
+    $err = curl_error($ch);
+    curl_close($ch);
+    if ($raw === false) {
+        return [null, 'connection failed: ' . $err];
+    }
+    $data = json_decode($raw, true);
+    return is_array($data) ? [$data, null] : [null, 'invalid response'];
+}
+
+function cf_call(FritzFailover $mdl, $method, $path, $body = null)
+{
+    list($data, $err) = http_json($method, 'https://api.cloudflare.com/client/v4' . $path, [
+        'Authorization: Bearer ' . (string)$mdl->cf_token,
+        'Content-Type: application/json',
+    ], $body);
+    if ($data === null) {
+        return [null, $err];
+    }
+    if (empty($data['success'])) {
+        $msgs = [];
+        foreach ($data['errors'] ?? [] as $e) {
+            $msgs[] = ($e['code'] ?? '') . ' ' . ($e['message'] ?? '');
+        }
+        return [null, 'Cloudflare: ' . (implode('; ', $msgs) ?: 'request failed')];
+    }
+    return [$data['result'] ?? null, null];
+}
+
+/* zone of the record: try wg.domain.com, domain.com, ... (needs Zone:Read) */
+function cf_find_zone(FritzFailover $mdl, $record)
+{
+    $labels = explode('.', $record);
+    for ($i = 0; count($labels) - $i >= 2; $i++) {
+        $candidate = implode('.', array_slice($labels, $i));
+        list($zones, $err) = cf_call($mdl, 'GET', '/zones?name=' . rawurlencode($candidate));
+        if ($err !== null) {
+            return [null, $err];
+        }
+        if (!empty($zones[0]['id'])) {
+            return [$zones[0]['id'], null];
+        }
+    }
+    return [null, "no Cloudflare zone found for {$record} (check the token's Zone Resources)"];
+}
+
+function cf_get_record(FritzFailover $mdl, $zone, $record)
+{
+    list($recs, $err) = cf_call($mdl, 'GET', "/zones/{$zone}/dns_records?name=" . rawurlencode($record));
+    if ($err !== null) {
+        return [null, $err];
+    }
+    return [$recs[0] ?? [], null];
+}
+
+function out_json($status, $message, $extra = [])
+{
+    echo json_encode(array_merge(['status' => $status, 'message' => $message], $extra)) . "\n";
+}
+
 $mdl = new FritzFailover();
 $cmd = $argv[1] ?? '';
 
@@ -115,6 +192,9 @@ switch ($cmd) {
         emit('FF_FAIL_THRESHOLD', (int)(string)$mdl->fail_threshold);
         emit('FF_RECOVER_THRESHOLD', (int)(string)$mdl->recover_threshold);
         emit('FF_CHECK_INTERVAL', (int)(string)$mdl->check_interval);
+        emit('FF_CF_ENABLED', (string)$mdl->cf_enabled);
+        emit('FF_PO_ENABLED', (string)$mdl->po_enabled);
+        emit('FF_PO_FAILBACK', (string)$mdl->po_failback);
         break;
 
     case 'curlcfg':
@@ -161,6 +241,90 @@ switch ($cmd) {
             ];
         }
         echo json_encode($list) . "\n";
+        break;
+
+    case 'cfsync':
+        /* point the CNAME to the normal or failover destination */
+        $which = $argv[2] ?? '';
+        $record = strtolower((string)$mdl->cf_record);
+        $target = strtolower((string)($which === 'failover' ? $mdl->cf_failover_target : $mdl->cf_normal_target));
+        if (!in_array($which, ['normal', 'failover']) || $record === '' || $target === '' || (string)$mdl->cf_token === '') {
+            fail('Cloudflare DNS switch is not configured');
+        }
+        list($zone, $err) = cf_find_zone($mdl, $record);
+        if ($err !== null) {
+            fail($err);
+        }
+        list($rec, $err) = cf_get_record($mdl, $zone, $record);
+        if ($err !== null) {
+            fail($err);
+        }
+        $payload = ['type' => 'CNAME', 'name' => $record, 'content' => $target,
+            'ttl' => (int)(string)$mdl->cf_ttl, 'proxied' => false];
+        if (empty($rec)) {
+            list(, $err) = cf_call($mdl, 'POST', "/zones/{$zone}/dns_records", $payload);
+        } elseif (($rec['type'] ?? '') !== 'CNAME') {
+            fail("{$record} exists as {$rec['type']} record, refusing to change it; delete it or make it a CNAME");
+        } elseif (strtolower($rec['content'] ?? '') === $target && (int)($rec['ttl'] ?? 0) === $payload['ttl'] && empty($rec['proxied'])) {
+            echo "{$record} already points to {$target}\n";
+            exit(0);
+        } else {
+            list(, $err) = cf_call($mdl, 'PATCH', "/zones/{$zone}/dns_records/{$rec['id']}", $payload);
+        }
+        if ($err !== null) {
+            fail($err);
+        }
+        echo "{$record} now points to {$target}\n";
+        break;
+
+    case 'cfcheck':
+        /* read-only check for the GUI */
+        $record = strtolower((string)$mdl->cf_record);
+        if ($record === '' || (string)$mdl->cf_token === '') {
+            out_json('failed', 'Please enter API token and record first and save.');
+            break;
+        }
+        list($zone, $err) = cf_find_zone($mdl, $record);
+        if ($err !== null) {
+            out_json('failed', $err);
+            break;
+        }
+        list($rec, $err) = cf_get_record($mdl, $zone, $record);
+        if ($err !== null) {
+            out_json('failed', $err);
+        } elseif (empty($rec)) {
+            out_json('ok', "Token works. {$record} does not exist yet, it will be created as CNAME on the first switch.");
+        } elseif (($rec['type'] ?? '') !== 'CNAME') {
+            out_json('failed', "{$record} exists as {$rec['type']} record. Delete it or change it to a CNAME, the plugin only manages CNAME records.");
+        } else {
+            out_json('ok', "Token works. {$record} is a CNAME pointing to {$rec['content']} (TTL {$rec['ttl']}" . (!empty($rec['proxied']) ? ', PROXIED - will be set to DNS only' : '') . ').');
+        }
+        break;
+
+    case 'pushover':
+    case 'pushtest':
+        if ((string)$mdl->po_token === '' || (string)$mdl->po_user === '') {
+            if ($cmd === 'pushtest') {
+                out_json('failed', 'Please enter API token and user key first and save.');
+                break;
+            }
+            fail('Pushover is not configured');
+        }
+        $title = $cmd === 'pushtest' ? 'OPNsense FRITZ!Box failover' : ($argv[2] ?? 'OPNsense FRITZ!Box failover');
+        $message = $cmd === 'pushtest' ? 'Test notification: Pushover works.' : ($argv[3] ?? '');
+        list($data, $err) = http_json('POST', 'https://api.pushover.net/1/messages.json', [], null, [
+            'token' => (string)$mdl->po_token,
+            'user' => (string)$mdl->po_user,
+            'title' => $title,
+            'message' => $message,
+        ]);
+        $ok = $data !== null && (int)($data['status'] ?? 0) === 1;
+        $msg = $ok ? 'Notification sent.' : ($err ?? implode('; ', $data['errors'] ?? ['request failed']));
+        if ($cmd === 'pushtest') {
+            out_json($ok ? 'ok' : 'failed', $msg);
+        } elseif (!$ok) {
+            fail('Pushover: ' . $msg);
+        }
         break;
 
     case 'setmonitor':

@@ -12,6 +12,13 @@ is healthy again the normal monitor IP is restored.
 Plugin Changelog
 ================
 
+1.6
+
+* Optional Cloudflare DNS switch of a CNAME (e.g. WireGuard host name)
+* Optional Pushover notifications on failover and failback
+* Both are retried until they succeed (the line is down at that moment)
+* "Check Cloudflare" and "Send test push" buttons
+
 1.5
 
 * Switch history (kept across reboots): last switch to backup, backup

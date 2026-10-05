@@ -101,6 +101,28 @@ class FritzFailover extends BaseModel
             ));
         }
 
+        if ((string)$this->cf_enabled === '1') {
+            foreach (['cf_token', 'cf_record', 'cf_normal_target', 'cf_failover_target'] as $field) {
+                if ((string)$this->$field === '') {
+                    $messages->appendMessage(new Message(gettext('Required when the Cloudflare DNS switch is enabled.'), $field));
+                }
+            }
+            if ((string)$this->cf_normal_target !== '' && (string)$this->cf_normal_target === (string)$this->cf_failover_target) {
+                $messages->appendMessage(new Message(gettext('Normal and failover destination must be different.'), 'cf_failover_target'));
+            }
+            if ((string)$this->cf_record !== '' && in_array((string)$this->cf_record, [(string)$this->cf_normal_target, (string)$this->cf_failover_target])) {
+                $messages->appendMessage(new Message(gettext('The record cannot point to itself.'), 'cf_record'));
+            }
+        }
+
+        if ((string)$this->po_enabled === '1') {
+            foreach (['po_token', 'po_user'] as $field) {
+                if ((string)$this->$field === '') {
+                    $messages->appendMessage(new Message(gettext('Required when Pushover notifications are enabled.'), $field));
+                }
+            }
+        }
+
         return $messages;
     }
 }

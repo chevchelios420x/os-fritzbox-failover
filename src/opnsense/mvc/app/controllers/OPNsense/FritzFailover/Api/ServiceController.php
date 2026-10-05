@@ -87,6 +87,39 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
+     * read-only check of the Cloudflare token and record
+     * @return array
+     */
+    public function cfcheckAction()
+    {
+        return $this->jsonAction('fritzfailover cfcheck');
+    }
+
+    /**
+     * send a Pushover test notification
+     * @return array
+     */
+    public function pushtestAction()
+    {
+        return $this->jsonAction('fritzfailover pushtest');
+    }
+
+    /**
+     * run a configd action returning JSON (POST only)
+     * @param string $action configd action
+     * @return array
+     */
+    private function jsonAction($action)
+    {
+        if (!$this->request->isPost()) {
+            return ['status' => 'failed', 'message' => 'POST required'];
+        }
+        $response = trim((new Backend())->configdRun($action));
+        $result = json_decode($response, true);
+        return is_array($result) ? $result : ['status' => 'failed', 'message' => $response];
+    }
+
+    /**
      * list IPv4 gateways for the gateway dropdown
      * @return array
      */

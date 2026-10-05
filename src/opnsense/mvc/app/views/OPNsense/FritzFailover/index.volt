@@ -45,7 +45,8 @@ POSSIBILITY OF SUCH DAMAGE.
             'test_end': ['label-info', '{{ lang._("Test failover finished") }}'],
             'restore': ['label-info', '{{ lang._("Normal monitor IP restored") }}'],
             'sim_failover': ['label-default', '{{ lang._("TEST MODE: would switch to backup") }}'],
-            'sim_failback': ['label-default', '{{ lang._("TEST MODE: would switch back") }}']
+            'sim_failback': ['label-default', '{{ lang._("TEST MODE: would switch back") }}'],
+            'dns': ['label-primary', '{{ lang._("Cloudflare DNS updated") }}']
         };
         let backupSince = 0;
 
@@ -256,6 +257,27 @@ POSSIBILITY OF SUCH DAMAGE.
             });
         });
 
+        function saveAndCall(btn, endpoint, title) {
+            const icon = btn.find('i');
+            const orig = icon.attr('class');
+            btn.prop('disabled', true);
+            icon.attr('class', 'fa fa-spinner fa-pulse fa-fw');
+            const done = function () { btn.prop('disabled', false); icon.attr('class', orig); };
+            saveFormToEndpoint('/api/fritzfailover/settings/set', 'frm_general', function () {
+                ajaxCall(endpoint, {}, function (data) {
+                    done();
+                    BootstrapDialog.show({
+                        type: (data && data.status === 'ok') ? BootstrapDialog.TYPE_SUCCESS : BootstrapDialog.TYPE_WARNING,
+                        title: title,
+                        message: $('<div/>').text((data && data.message) || '{{ lang._("No answer") }}'),
+                        buttons: [{label: '{{ lang._("Close") }}', action: function (d) { d.close(); }}]
+                    });
+                });
+            }, true, done);
+        }
+        $('#cfCheckAct').click(function () { saveAndCall($(this), '/api/fritzfailover/service/cfcheck', '{{ lang._("Cloudflare check") }}'); });
+        $('#pushTestAct').click(function () { saveAndCall($(this), '/api/fritzfailover/service/pushtest', '{{ lang._("Pushover test") }}'); });
+
         $('#testAct').click(function () {
             const btn = $(this);
             btn.prop('disabled', true).find('i').removeClass('fa-stethoscope').addClass('fa-spinner fa-pulse');
@@ -377,6 +399,12 @@ POSSIBILITY OF SUCH DAMAGE.
                     type="button"></button>
             <button class="btn btn-default" id="testAct" type="button">
                 <i class="fa fa-stethoscope fa-fw"></i> {{ lang._('Test connection') }}
+            </button>
+            <button class="btn btn-default" id="cfCheckAct" type="button">
+                <i class="fa fa-cloud fa-fw"></i> {{ lang._('Check Cloudflare') }}
+            </button>
+            <button class="btn btn-default" id="pushTestAct" type="button">
+                <i class="fa fa-bell fa-fw"></i> {{ lang._('Send test push') }}
             </button>
             <br/><br/>
         </div>

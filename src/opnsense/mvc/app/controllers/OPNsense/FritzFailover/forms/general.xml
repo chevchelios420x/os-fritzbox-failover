@@ -123,4 +123,74 @@
         <type>text</type>
         <help>Number of successful checks in a row before switching back to cable. Prevents flapping while the line is unstable. Default: 3.</help>
     </field>
+    <field>
+        <type>header</type>
+        <label>Cloudflare DNS switch (optional)</label>
+        <collapse>true</collapse>
+    </field>
+    <field>
+        <id>fritzfailover.cf_enabled</id>
+        <label>Switch DNS record on failover</label>
+        <type>checkbox</type>
+        <help>Points a DNS record (e.g. the WireGuard host name your clients connect to) to the backup line during a failover and back to the cable line afterwards, so remote clients follow automatically. Uses the Cloudflare API. Only done on real switches (and test failovers), never in test mode.</help>
+    </field>
+    <field>
+        <id>fritzfailover.cf_token</id>
+        <label>Cloudflare API token</label>
+        <type>password</type>
+        <help>A Cloudflare user API token. Create it at dash.cloudflare.com &gt; My Profile &gt; API Tokens &gt; Create Token &gt; Create Custom Token with exactly these permissions: Zone - Zone - Read and Zone - DNS - Edit. Under Zone Resources choose Include - Specific zone - your domain (e.g. domain.com). No other permissions are needed. Do not use the Global API Key.</help>
+    </field>
+    <field>
+        <id>fritzfailover.cf_record</id>
+        <label>Record to switch (CNAME)</label>
+        <type>text</type>
+        <help>The host name your clients use, e.g. wg.domain.com. It is set as a CNAME (DNS only, not proxied; WireGuard cannot run through the Cloudflare proxy). If it does not exist yet it is created; an existing A/AAAA record with this name is not touched, delete it first.</help>
+    </field>
+    <field>
+        <id>fritzfailover.cf_normal_target</id>
+        <label>Normal destination</label>
+        <type>text</type>
+        <help>Where the record points while the cable line works, e.g. fritz-cable.domain.com (kept up to date by the dynamic DNS of the cable FRITZ!Box).</help>
+    </field>
+    <field>
+        <id>fritzfailover.cf_failover_target</id>
+        <label>Failover destination</label>
+        <type>text</type>
+        <help>Where the record points during a failover, e.g. fritz-5g.domain.com (dynamic DNS of the backup line).</help>
+    </field>
+    <field>
+        <id>fritzfailover.cf_ttl</id>
+        <label>TTL (seconds)</label>
+        <type>text</type>
+        <help>Time to live of the record. 60 seconds (the minimum at Cloudflare) lets clients follow a switch within about a minute.</help>
+    </field>
+    <field>
+        <type>header</type>
+        <label>Pushover notifications (optional)</label>
+        <collapse>true</collapse>
+    </field>
+    <field>
+        <id>fritzfailover.po_enabled</id>
+        <label>Send push notifications</label>
+        <type>checkbox</type>
+        <help>Sends a Pushover message when OPNsense switches to the backup line (and back). Only done on real switches (and test failovers), never in test mode.</help>
+    </field>
+    <field>
+        <id>fritzfailover.po_token</id>
+        <label>Pushover API token</label>
+        <type>password</type>
+        <help>The API token of a Pushover application: pushover.net &gt; Your Applications &gt; Create an Application/API Token, e.g. named &quot;OPNsense&quot;.</help>
+    </field>
+    <field>
+        <id>fritzfailover.po_user</id>
+        <label>Pushover user key</label>
+        <type>text</type>
+        <help>Your user key (shown on the pushover.net start page after login) or a group key.</help>
+    </field>
+    <field>
+        <id>fritzfailover.po_failback</id>
+        <label>Also notify when switching back</label>
+        <type>checkbox</type>
+        <help>Also send a message when the cable line is used again.</help>
+    </field>
 </form>

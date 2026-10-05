@@ -112,6 +112,28 @@ Dann **„Verbindung testen“** klicken und anschließend **„Übernehmen“**
 | Plugin deinstallieren | normale Monitor-IP wird zurückgesetzt |
 | Dienst nur gestoppt (Plugin bleibt aktiv) | **bleibt erhalten** (Internet läuft weiter über das Backup). Die Statusseite zeigt das an. |
 
+### Cloudflare-DNS umschalten (optional)
+
+Damit z. B. WireGuard-Clients bei einem Failover automatisch über die Backup-Leitung kommen, kann das Plugin einen DNS-Eintrag bei Cloudflare umstellen:
+
+- **Record (CNAME):** z. B. `wg.domain.com`, der Name, den deine Clients benutzen.
+- **Normales Ziel:** z. B. `fritz-cable.domain.com` (DynDNS der Kabel-FRITZ!Box).
+- **Failover-Ziel:** z. B. `fritz-5g.domain.com` (DynDNS der Backup-Leitung).
+- **TTL:** 60 Sekunden (Minimum bei Cloudflare).
+
+**API-Token anlegen:** dash.cloudflare.com → My Profile → API Tokens → Create Token → *Create Custom Token*
+- Permissions: **Zone → Zone → Read** und **Zone → DNS → Edit**
+- Zone Resources: **Include → Specific zone → deine Domain**
+- Keine weiteren Rechte, nicht den Global API Key verwenden.
+
+Der Eintrag wird als CNAME „DNS only“ (nicht proxied) gesetzt; existiert er noch nicht, wird er angelegt. Einen vorhandenen A/AAAA-Eintrag mit demselben Namen fasst das Plugin nicht an. Mit **„Check Cloudflare“** prüfst du Token und Eintrag, ohne etwas zu ändern.
+
+### Push-Benachrichtigung per Pushover (optional)
+
+Bei jedem Failover (und auf Wunsch bei der Rückschaltung) kommt eine Pushover-Nachricht mit Uhrzeit und Grund. Nötig sind ein **Application API Token** (pushover.net → Your Applications → Create an Application) und dein **User Key**. Mit **„Send test push“** prüfst du die Einstellungen.
+
+**Wichtig für beides:** Direkt beim Failover ist das Kabel tot, und die Firewall selbst erreicht Cloudflare/Pushover erst, wenn OPNsense umgeschaltet hat. Das Plugin versucht es deshalb bei jeder Prüfung erneut, bis es klappt. Damit die Firewall selbst über das Backup ins Internet kommt, unter **System → Einstellungen → Allgemein** „Allow default gateway switching“ aktivieren. Beides passiert nur bei echten Umschaltungen und beim Test-Failover, nie im Testmodus.
+
 ### Umschalt-Verlauf
 
 Die Statusseite zeigt, wann zuletzt auf das Backup umgeschaltet wurde, seit wann das Backup aktiv ist (mit laufender Dauer) und eine Tabelle der letzten 20 Umschaltungen mit Grund. Der Verlauf liegt unter `/var/db/fritzfailover/` und übersteht Neustarts; beim Deinstallieren wird er gelöscht.
