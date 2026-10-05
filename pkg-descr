@@ -12,6 +12,10 @@ is healthy again the normal monitor IP is restored.
 Plugin Changelog
 ================
 
+1.12
+
+* Fix: gateway names with hyphens (e.g. WAN-LTE) were rejected
+
 1.11
 
 * Configurable notification delay after the switch (3-30 s, default 5)

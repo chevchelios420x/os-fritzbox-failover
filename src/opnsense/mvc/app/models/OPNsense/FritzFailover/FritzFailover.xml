@@ -43,12 +43,12 @@
         <gateway type="TextField">
             <Default>WAN_CABLE_GW</Default>
             <Required>Y</Required>
-            <Mask>/^[a-zA-Z0-9_]{1,32}$/</Mask>
-            <ValidationMessage>Gateway names consist of letters, digits and underscores only (max. 32 characters).</ValidationMessage>
+            <Mask>/^[a-zA-Z0-9_\-]{1,32}$/</Mask>
+            <ValidationMessage>Gateway names consist of letters, digits, underscores and hyphens (max. 32 characters).</ValidationMessage>
         </gateway>
         <backup_gateway type="TextField">
-            <Mask>/^[a-zA-Z0-9_]{1,32}$/</Mask>
-            <ValidationMessage>Gateway names consist of letters, digits and underscores only (max. 32 characters).</ValidationMessage>
+            <Mask>/^[a-zA-Z0-9_\-]{1,32}$/</Mask>
+            <ValidationMessage>Gateway names consist of letters, digits, underscores and hyphens (max. 32 characters).</ValidationMessage>
         </backup_gateway>
         <interface type="InterfaceField">
             <Required>N</Required>
