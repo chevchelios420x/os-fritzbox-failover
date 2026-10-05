@@ -12,6 +12,11 @@ is healthy again the normal monitor IP is restored.
 Plugin Changelog
 ================
 
+1.5
+
+* Switch history (kept across reboots): last switch to backup, backup
+  active since (with live duration) and a table of the last switches
+
 1.4
 
 * Plugin version shown on the page, linking to the project on GitHub

@@ -112,6 +112,10 @@ Dann **„Verbindung testen“** klicken und anschließend **„Übernehmen“**
 | Plugin deinstallieren | normale Monitor-IP wird zurückgesetzt |
 | Dienst nur gestoppt (Plugin bleibt aktiv) | **bleibt erhalten** (Internet läuft weiter über das Backup). Die Statusseite zeigt das an. |
 
+### Umschalt-Verlauf
+
+Die Statusseite zeigt, wann zuletzt auf das Backup umgeschaltet wurde, seit wann das Backup aktiv ist (mit laufender Dauer) und eine Tabelle der letzten 20 Umschaltungen mit Grund. Der Verlauf liegt unter `/var/db/fritzfailover/` und übersteht Neustarts; beim Deinstallieren wird er gelöscht.
+
 ### Test-Failover
 
 Der Button **„Test failover (2 minutes)“** löst einen **echten** Failover für 2 Minuten aus, auf genau demselben Weg wie bei einem Ausfall: Die Monitor-IP des Kabel-Gateways wird auf die Fake-Monitor-IP gesetzt, dpinger meldet 100 % Verlust, OPNsense schaltet nativ auf das Backup. Nach 2 Minuten wird die normale Monitor-IP gesetzt und OPNsense schaltet zurück. Das funktioniert auch im Testmodus. Während des Tests trifft das Plugin keine eigenen Entscheidungen. Stoppen des Dienstes oder „Normale Monitor-IP wiederherstellen“ beendet den Test sofort. Während des Tests zeigt die Statusseite einen Countdown mit Fortschrittsbalken.

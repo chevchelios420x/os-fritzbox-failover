@@ -15,4 +15,6 @@ if [ "${PKG_UPGRADE:-}" != "true" ] && [ -x "${SCRIPT}" ]; then
 	# normal monitor IP back if the fake one is active
 	echo "Restoring the normal gateway monitor IP"
 	"${SCRIPT}" restore >/dev/null 2>&1 || :
+	# switch history
+	rm -rf /var/db/fritzfailover
 fi

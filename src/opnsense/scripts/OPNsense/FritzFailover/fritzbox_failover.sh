@@ -70,6 +70,10 @@ BACKOFF_FILE="${RUNDIR}/fritzfailover.tr064_backoff"
 PIDFILE="${RUNDIR}/fritzfailover.pid"
 LOCK_FILE="${RUNDIR}/fritzfailover.lck"
 TEST_FILE="${RUNDIR}/fritzfailover.testfailover"
+# switch history, kept across reboots
+HISTORY_DIR="/var/db/fritzfailover"
+HISTORY_FILE="${HISTORY_DIR}/history"
+HISTORY_KEEP=50
 TAG="fritzfailover"
 
 # no switching during the first seconds after boot (WAN may still be coming up)
@@ -111,6 +115,28 @@ log_err()
 json_escape()
 {
 	printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr -d '\000-\037'
+}
+
+# Appends one switch event: "<epoch> <kind> <details>".
+#   kinds: failover, failback, test_start, test_end, restore,
+#          sim_failover, sim_failback (test mode, nothing changed)
+record_event()
+{
+	mkdir -p "${HISTORY_DIR}" 2>/dev/null || return 0
+	_detail=$(printf '%s' "$2" | tr -d '"\\\000-\037' | cut -c1-200)
+	printf '%s %s %s\n' "$(date +%s)" "$1" "${_detail}" >> "${HISTORY_FILE}"
+	tail -n "${HISTORY_KEEP}" "${HISTORY_FILE}" > "${HISTORY_FILE}.tmp" 2>/dev/null &&
+	    mv -f "${HISTORY_FILE}.tmp" "${HISTORY_FILE}"
+	chmod 644 "${HISTORY_FILE}" 2>/dev/null
+}
+
+# Human readable reason for a switch event (FRITZ!Box status and/or pings).
+event_detail()
+{
+	_d=""
+	[ "${TR_TEXT}" != "not used" ] && [ "${TR_TEXT}" != "-" ] && _d="FRITZ!Box: ${TR_TEXT}"
+	[ "${PING_TEXT}" != "not used" ] && [ "${PING_TEXT}" != "-" ] && _d="${_d}${_d:+; }Ping: ${PING_TEXT}"
+	printf '%s' "${_d}"
 }
 
 is_uint()
@@ -194,6 +220,18 @@ write_state()
 			    gsub(/_/, " ", $6); gsub(/_/, " ", $7);
 			    printf "%s{\"target\":\"%s\",\"checks\":%d,\"failed_checks\":%d,\"sent\":%d,\"lost\":%d,\"last_loss\":\"%s\",\"since\":\"%s\"}", (n++ ? "," : ""), $1, $2, $3, $4, $5, ($6 == "-" ? "" : $6), (NF >= 7 ? $7 : "") }' \
 			    "${STATS_FILE}"
+		fi
+		printf '],'
+		# newest 20 switch events, newest first
+		printf '"events":['
+		if [ -f "${HISTORY_FILE}" ]; then
+			tail -n 20 "${HISTORY_FILE}" | awk 'BEGIN { n = 0 } { l[NR] = $0 } END {
+			    for (i = NR; i >= 1; i--) {
+			        split(l[i], f, " ");
+			        if (f[1] !~ /^[0-9]+$/) continue;
+			        d = l[i]; sub(/^[^ ]+ [^ ]+ ?/, "", d);
+			        printf "%s{\"time\":%s,\"kind\":\"%s\",\"detail\":\"%s\"}", (n++ ? "," : ""), f[1], f[2], d
+			    } }'
 		fi
 		printf '],'
 		if [ -n "${TEST_LEFT}" ]; then
@@ -574,6 +612,11 @@ run_check()
 					OKS=0
 					_status="ok"
 					MESSAGE="switched back to cable"
+					if [ "${FF_DRY_RUN}" = "1" ]; then
+						record_event sim_failback "$(event_detail)"
+					else
+						record_event failback "$(event_detail)"
+					fi
 					[ "${FF_DRY_RUN}" = "1" ] && MESSAGE="TEST MODE: would switch back to cable now"
 				fi
 			fi
@@ -595,6 +638,11 @@ run_check()
 					FAILS=0
 					_status="failover"
 					MESSAGE="switched to backup line"
+					if [ "${FF_DRY_RUN}" = "1" ]; then
+						record_event sim_failover "$(event_detail)"
+					else
+						record_event failover "$(event_detail)"
+					fi
 					[ "${FF_DRY_RUN}" = "1" ] && MESSAGE="TEST MODE: would fail over to the backup line now"
 				fi
 			fi
@@ -616,6 +664,7 @@ do_restore()
 	load_gateway || return 0
 	if [ "${GW_MONITOR}" = "${FF_BAD_MONITOR}" ]; then
 		log "restoring monitor ${FF_GOOD_MONITOR} on ${FF_GATEWAY}"
+		record_event restore "normal monitor IP restored manually or on stop"
 		FF_DRY_RUN=0
 		apply_monitor "${FF_GOOD_MONITOR}"
 	fi
@@ -678,6 +727,7 @@ do_testfailover()
 	fi
 	echo $(($(date +%s) + TEST_DURATION)) > "${TEST_FILE}"
 	log "TEST FAILOVER started by the user for ${TEST_DURATION} seconds, setting monitor ${FF_BAD_MONITOR} on ${FF_GATEWAY}"
+	record_event test_start "test failover for ${TEST_DURATION} seconds"
 	FF_DRY_RUN=0
 	if ! apply_monitor "${FF_BAD_MONITOR}"; then
 		rm -f "${TEST_FILE}"
@@ -702,6 +752,7 @@ do_testfailover_end()
 	load_gateway || return 0
 	if [ "${GW_MONITOR}" = "${FF_BAD_MONITOR}" ]; then
 		log "TEST FAILOVER finished, restoring monitor ${FF_GOOD_MONITOR} on ${FF_GATEWAY}"
+		record_event test_end "test failover finished"
 		_dry=${FF_DRY_RUN}
 		FF_DRY_RUN=0
 		apply_monitor "${FF_GOOD_MONITOR}"

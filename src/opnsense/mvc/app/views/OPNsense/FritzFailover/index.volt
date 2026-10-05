@@ -38,6 +38,59 @@ POSSIBILITY OF SUCH DAMAGE.
             'unknown': ['label-default', '{{ lang._("Unknown") }}']
         };
 
+        const eventLabels = {
+            'failover': ['label-danger', '{{ lang._("Switched to backup") }}'],
+            'failback': ['label-success', '{{ lang._("Switched back to cable") }}'],
+            'test_start': ['label-warning', '{{ lang._("Test failover started") }}'],
+            'test_end': ['label-info', '{{ lang._("Test failover finished") }}'],
+            'restore': ['label-info', '{{ lang._("Normal monitor IP restored") }}'],
+            'sim_failover': ['label-default', '{{ lang._("TEST MODE: would switch to backup") }}'],
+            'sim_failback': ['label-default', '{{ lang._("TEST MODE: would switch back") }}']
+        };
+        let backupSince = 0;
+
+        function fmtTime(epoch) {
+            const d = new Date(epoch * 1000);
+            const p = function (n) { return ('0' + n).slice(-2); };
+            return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+        }
+
+        function fmtDuration(sec) {
+            sec = Math.max(0, Math.floor(sec));
+            const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+            return (d > 0 ? d + 'd ' : '') + ('0' + h).slice(-2) + ':' + ('0' + m).slice(-2) + ':' + ('0' + s).slice(-2);
+        }
+
+        function renderBackupSince() {
+            if (backupSince) {
+                $('#ff_backup_since').text(fmtTime(backupSince) + ' ({{ lang._("for") }} ' + fmtDuration(Date.now() / 1000 - backupSince) + ')');
+            } else {
+                $('#ff_backup_since').text('{{ lang._("not active") }}');
+            }
+        }
+        setInterval(renderBackupSince, 1000);
+
+        function renderEvents(data) {
+            const events = data.events || [];
+            const toBackup = data.dry_run ? ['failover', 'test_start', 'sim_failover'] : ['failover', 'test_start'];
+            const last = events.find(function (e) { return toBackup.indexOf(e.kind) >= 0; });
+            $('#ff_last_switch').text(last ? fmtTime(last.time) + ' - ' + (eventLabels[last.kind] || ['', last.kind])[1] : '{{ lang._("never") }}');
+            const onBackup = ['failover', 'recovering', 'test_failover'].indexOf(data.status) >= 0;
+            backupSince = (onBackup && last) ? last.time : 0;
+            renderBackupSince();
+            const tbody = $('#ff_events tbody').empty();
+            events.forEach(function (e) {
+                const lbl = eventLabels[e.kind] || ['label-default', e.kind];
+                tbody.append($('<tr/>')
+                    .append($('<td style="white-space:nowrap"/>').text(fmtTime(e.time)))
+                    .append($('<td/>').append($('<span class="label"/>').addClass(lbl[0]).text(lbl[1])))
+                    .append($('<td/>').text(e.detail || '')));
+            });
+            if (!events.length) {
+                tbody.append($('<tr/>').append($('<td colspan="3"/>').text('{{ lang._("No switches recorded yet.") }}')));
+            }
+        }
+
         let testEnd = 0;
         let testTotal = 0;
 
@@ -64,6 +117,7 @@ POSSIBILITY OF SUCH DAMAGE.
                 $('#ff_counters').text((data.failures !== undefined ? data.failures : '-') + ' / ' + (data.successes !== undefined ? data.successes : '-'));
                 $('#ff_last').text(data.last_check || '-');
                 $('#ff_message').text(data.message || '');
+                renderEvents(data || {});
                 if (state === 'test_failover' && data.test_total) {
                     testEnd = Date.now() + (data.test_left || 0) * 1000;
                     testTotal = data.test_total;
@@ -253,6 +307,8 @@ POSSIBILITY OF SUCH DAMAGE.
                 <tr><td>{{ lang._('Active monitor IP') }}</td><td id="ff_monitor">-</td></tr>
                 <tr><td>{{ lang._('Failures / successes in a row') }}</td><td id="ff_counters">-</td></tr>
                 <tr><td>{{ lang._('Last check') }}</td><td id="ff_last">-</td></tr>
+                <tr><td>{{ lang._('Last switch to backup') }}</td><td id="ff_last_switch">-</td></tr>
+                <tr><td>{{ lang._('Backup active since') }}</td><td id="ff_backup_since">-</td></tr>
                 <tr><td>{{ lang._('Info') }}</td><td id="ff_message"></td></tr>
             </tbody>
         </table>
@@ -269,6 +325,17 @@ POSSIBILITY OF SUCH DAMAGE.
         <button class="btn btn-default btn-xs" id="restoreAct" type="button">
             <i class="fa fa-undo fa-fw"></i> {{ lang._('Restore normal monitor IP') }}
         </button>
+        <h2>{{ lang._('Switch history') }}</h2>
+        <table id="ff_events" class="table table-condensed table-striped">
+            <thead>
+                <tr>
+                    <th>{{ lang._('Time') }}</th>
+                    <th>{{ lang._('Event') }}</th>
+                    <th>{{ lang._('Details') }}</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
         <h2>{{ lang._('Internet test addresses (statistics)') }}</h2>
         <p>{{ lang._('Every lost ping per test address, measured through the cable line. If an address loses pings while the others answer, that address is unreliable as monitor target (e.g. the 9.9.9.9 timeouts). A failed check means no reply at all from this address in that check.') }}</p>
         <table id="ff_targets" class="table table-condensed table-striped">
