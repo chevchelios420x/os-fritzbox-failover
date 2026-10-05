@@ -117,6 +117,14 @@ POSSIBILITY OF SUCH DAMAGE.
                 $('#ff_monitor').text(data.monitor || '-');
                 $('#ff_counters').text((data.failures !== undefined ? data.failures : '-') + ' / ' + (data.successes !== undefined ? data.successes : '-'));
                 $('#ff_last').text(data.last_check || '-');
+                // watchdog: warn when the monitor runs but has not checked for a while
+                const age = data.last_check_epoch ? Math.round(Date.now() / 1000 - data.last_check_epoch) : 0;
+                const limit = 3 * (data.interval || 10) + 60;
+                if (state !== 'stopped' && data.last_check_epoch && age > limit) {
+                    $('#ff_stale').text('{{ lang._("Warning: no check for") }} ' + age + ' {{ lang._("seconds. The monitor may hang, see System > Log Files > General (fritzfailover) or restart the service.") }}').show();
+                } else {
+                    $('#ff_stale').hide();
+                }
                 $('#ff_message').text(data.message || '');
                 renderEvents(data || {});
                 if (state === 'test_failover' && data.test_total) {
@@ -330,6 +338,7 @@ POSSIBILITY OF SUCH DAMAGE.
             {{ lang._('All checks run, but nothing on OPNsense is changed. The state below shows what the plugin would do. Switch test mode off in the settings to activate the failover.') }}
         </div>
         <h2>{{ lang._('Status') }}</h2>
+        <div id="ff_stale" class="alert alert-danger" role="alert" style="display:none;"></div>
         <table class="table table-condensed">
             <tbody>
                 <tr><td style="width:22%">{{ lang._('State') }}</td><td><span id="ff_state" class="label label-default">-</span></td></tr>

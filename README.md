@@ -148,6 +148,28 @@ Nach einem Neustart der OPNsense misst das Plugin die ersten 2 Minuten nur und s
 
 Umschaltungen werden ohne Eintrag in der Konfigurations-Historie gespeichert, damit eine flappende Leitung deine echten Backups nicht aus der Historie verdrängt. Jede Umschaltung steht im Systemlog (Tag `fritzfailover`).
 
+### Langzeitbetrieb
+
+Alles, was das Plugin speichert, ist in der Größe begrenzt:
+
+| Was | Wo | Größe |
+|---|---|---|
+| Status, Zähler, Sperre | `/var/run/fritzfailover.*` | je eine Zeile bzw. einige hundert Byte, wird überschrieben |
+| Statistik je Testadresse | `/var/run/fritzfailover.stats` | eine Zeile je Adresse |
+| Umschalt-Verlauf | `/var/db/fritzfailover/history` | max. 50 Einträge |
+| Push-Warteschlange | `/var/run/fritzfailover.push_queue` | nur bis zum Versand, max. 1 Tag |
+| Konfiguration | `config.xml` | nur bei Umschaltungen, ohne Backup-Einträge |
+| Systemlog | OPNsense-Log (rotiert von OPNsense) | normal nichts; nur Umschaltungen und verlorene Pings |
+
+Prozesse: ein dauerhafter Überwachungsprozess (von `daemon(8)` bei einem Absturz automatisch neu gestartet); jede Prüfung startet kurzlebige Prozesse (PHP, ping, curl), die alle ein Zeitlimit haben und sich wieder beenden.
+
+**Frühe Anzeichen für Probleme:**
+- Die Statusseite zeigt eine rote Warnung, wenn die letzte Prüfung länger als 3 Prüfintervalle + 60 Sekunden her ist.
+- Status „unknown“ oder Meldungen mit `fritzfailover` unter **System → Protokolldateien → Allgemein**.
+- In der Statistik steigen „Checks“ nicht mehr.
+
+Abhilfe in allen Fällen: Dienst unter **System → Diagnose → Dienste** neu starten (ein aktiver Failover bleibt dabei erhalten).
+
 ### Notfall per SSH
 
 ```sh

@@ -242,7 +242,7 @@ write_state()
 		if [ -n "${TEST_LEFT}" ]; then
 			printf '"test_left":%s,"test_total":%s,' "${TEST_LEFT}" "${TEST_DURATION}"
 		fi
-		printf '"last_check":"%s",' "$(date '+%Y-%m-%d %H:%M:%S')"
+		printf '"last_check":"%s","last_check_epoch":%s,"interval":%s,' "$(date '+%Y-%m-%d %H:%M:%S')" "$(date +%s)" "${FF_CHECK_INTERVAL:-10}"
 		printf '"message":"%s"}\n' "$(json_escape "${MESSAGE}")"
 	} > "${STATE_FILE}.tmp" && chmod 644 "${STATE_FILE}.tmp" && mv -f "${STATE_FILE}.tmp" "${STATE_FILE}"
 }
@@ -626,6 +626,8 @@ apply_monitor()
 run_check()
 {
 	MESSAGE=""
+	# leftovers of checks that were killed hard (normally removed right away)
+	find "${RUNDIR}" -maxdepth 1 -type d -name 'fritzfailover.??????' -mmin +10 -exec rm -rf {} + 2>/dev/null
 	if ! load_config; then
 		MESSAGE="configuration could not be read, nothing changed"
 		log_err "unable to read configuration"
