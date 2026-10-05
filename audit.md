@@ -237,3 +237,46 @@ Steht danach noch `192.0.2.1` drin: in der GUI unter System → Gateways korrigi
 2. **Vor dem echten Modus beheben:** H1, H2, H3, M1, M2, M4.
 3. **Für mehr Sicherheit:** M3 (FRITZ!Box-Rechte), M5 (Build pinnen), N1, N2.
 4. **Vor dem Abschalten des Testmodus:** Monitor-IP des Kabel-Gateways selbst auf `192.168.0.1` setzen (N5). Backup und Snapshot frisch halten.
+
+---
+
+## Langzeitbetrieb (Stand 1.13)
+
+Frage: Kann das Plugin bei monatelangem Betrieb auf dem Hauptrouter etwas volllaufen lassen oder hängen bleiben? Geprüft wurden alle Stellen im Code, an denen geschrieben wird oder Prozesse gestartet werden.
+
+### Speicher und Dateien
+
+| Was | Wo | Begrenzung |
+|---|---|---|
+| Status, Zähler, Sperre, Test-Failover, Cloudflare-Auftrag | `/var/run/fritzfailover.*` | je eine Zeile bzw. wenige hundert Byte, wird überschrieben |
+| Statistik je Testadresse | `/var/run/fritzfailover.stats` | eine Zeile je Adresse (max. 5); Zähler sind 64-bit-Ganzzahlen |
+| Umschalt-Verlauf | `/var/db/fritzfailover/history` | max. 50 Einträge (`tail`) |
+| Push-Warteschlange | `/var/run/fritzfailover.push_queue` | nur bis zum Versand, Einträge älter als 1 Tag werden verworfen |
+| Konfiguration | `/conf/config.xml` | nur bei echten Umschaltungen, ohne Backup-Einträge in der Historie |
+| Temp-Ordner je Prüfung | `/var/run/fritzfailover.XXXXXX` | werden sofort gelöscht; Reste hart abgebrochener Prüfungen räumt ab 1.13 jede Prüfung nach 10 Minuten weg |
+| Systemlog | OPNsense-Log | im Normalbetrieb keine Einträge; nur Umschaltungen, Fehler und verlorene Pings (nicht während eines Failovers); OPNsense rotiert die Logs selbst |
+
+Ergebnis: Nichts wächst unbegrenzt.
+
+### Prozesse
+
+- Ein dauerhafter Überwachungsprozess, von `daemon(8)` überwacht und bei einem Absturz nach 10 Sekunden neu gestartet.
+- Jede Prüfung startet nur kurzlebige Prozesse (PHP-Hilfsskript, `ping`, `curl`), alle mit Zeitlimit: `curl` max. 6–10 s, `ping` max. `Anzahl × Timeout + 1` s.
+- Alle Aktionen laufen nacheinander über eine Sperre (`lockf`, max. 60 s Wartezeit). Seit 1.3 können gestartete Langläufer (dpinger) die Sperre nicht mehr erben (vorher Ursache für stehenbleibende Prüfungen).
+- Der Test-Failover startet einen einzelnen Timer-Prozess, der nach 2 Minuten endet. Fällt er aus, beendet die nächste Prüfung den Test.
+
+### Last
+
+Pro Prüfung (Standard alle 10 s) 2–3 kurze PHP-Aufrufe, eine UPnP-/TR-064-Anfrage an die FRITZ!Box und 2 Pings je Testadresse. Für eine OPNsense-VM vernachlässigbar.
+
+### Frühe Anzeichen für Probleme
+
+- **Ab 1.13:** Rote Warnung auf der Statusseite, wenn die letzte Prüfung länger als 3 Prüfintervalle + 60 Sekunden her ist. Voraussetzung: Die Uhr des Browsers geht ungefähr richtig, sonst ist eine Fehlwarnung möglich.
+- Status „unknown“ oder Fehlermeldungen mit `fritzfailover` unter System → Protokolldateien → Allgemein.
+- In der Statistik steigt „Checks“ nicht mehr.
+- Abhilfe: Dienst neu starten; ein aktiver Failover bleibt dabei erhalten.
+
+### Restrisiken
+
+- Was sich nur im Dauerbetrieb zeigt (z. B. Verhalten der FRITZ!Box bei Abfragen alle 10 s über Monate oder Speicherverhalten von PHP/OPNsense selbst), lässt sich nicht im Voraus testen. Die Warnung bei ausbleibenden Prüfungen macht ein Hängen sichtbar.
+- Firmware-Updates von OPNsense können interne Schnittstellen ändern, die das Plugin nutzt (Gateway-Modell, `pluginctl`, `gateway_status.php`). Nach größeren OPNsense-Updates einmal „Verbindung testen“ und einen Test-Failover ausführen.
