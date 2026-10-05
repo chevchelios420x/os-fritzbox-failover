@@ -87,7 +87,7 @@
         <type>select_multiple</type>
         <style>tokenize</style>
         <allownew>true</allownew>
-        <help>Public addresses that are pinged through the cable line (in parallel, max. 5). The line only counts as dead if NONE of them answers, so a single unreachable server never triggers a failover. Default: 9.9.9.9, 1.1.1.1, 8.8.8.8.</help>
+        <help>Public addresses that are pinged through the cable line (in parallel, max. 5). The line only counts as dead if NONE of them answers, so a single unreachable server never triggers a failover. Enter at least two (better three) addresses of different providers. Default: 9.9.9.9, 1.1.1.1, 8.8.8.8.</help>
     </field>
     <field>
         <type>header</type>
@@ -186,6 +186,14 @@
         <label>Pushover user key</label>
         <type>text</type>
         <help>Your user key (shown on the pushover.net start page after login) or a group key.</help>
+    </field>
+    <field>
+        <id>fritzfailover.pubip_services</id>
+        <label>Public IP services</label>
+        <type>select_multiple</type>
+        <style>tokenize</style>
+        <allownew>true</allownew>
+        <help>Web services that return your public IPv4 address as plain text; the address is added to every message. They are asked in this order until one answers, always via IPv4. Enter at least two, in case one is down. Default: https://ifconfig.me/ip and https://ip.me.</help>
     </field>
     <field>
         <id>fritzfailover.po_failback</id>

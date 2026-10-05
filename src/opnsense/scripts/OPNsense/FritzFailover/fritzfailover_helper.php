@@ -166,6 +166,30 @@ function cf_get_record(FritzFailover $mdl, $zone, $record)
     return [$recs[0] ?? [], null];
 }
 
+/* asks the configured services in order (IPv4 only, plain text answer) */
+function public_ipv4($services)
+{
+    foreach (array_filter(explode(',', $services)) as $url) {
+        $ch = curl_init(trim($url));
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 4,
+            CURLOPT_TIMEOUT => 6,
+            CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_USERAGENT => 'curl/8.0',
+            CURLOPT_HTTPHEADER => ['Accept: text/plain'],
+        ]);
+        $raw = curl_exec($ch);
+        curl_close($ch);
+        $ip = is_string($raw) ? trim($raw) : '';
+        if (is_ipv4($ip)) {
+            return $ip;
+        }
+    }
+    return 'unknown';
+}
+
 function out_json($status, $message, $extra = [])
 {
     echo json_encode(array_merge(['status' => $status, 'message' => $message], $extra)) . "\n";
@@ -313,8 +337,7 @@ switch ($cmd) {
         $title = $cmd === 'pushtest' ? 'OPNsense FRITZ!Box failover' : ($argv[2] ?? 'OPNsense FRITZ!Box failover');
         $message = $cmd === 'pushtest' ? 'Test notification: Pushover works.' : ($argv[3] ?? '');
         /* public IPv4 the firewall is currently seen with (i.e. of the line in use) */
-        list($ipinfo, ) = http_json('GET', 'https://api.ipify.org?format=json');
-        $pubip = is_array($ipinfo) && is_ipv4($ipinfo['ip'] ?? '') ? $ipinfo['ip'] : 'unknown';
+        $pubip = public_ipv4((string)$mdl->pubip_services);
         $message .= "\nPublic IP: {$pubip}";
         list($data, $err) = http_json('POST', 'https://api.pushover.net/1/messages.json', [], null, [
             'token' => (string)$mdl->po_token,

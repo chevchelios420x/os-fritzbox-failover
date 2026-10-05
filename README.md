@@ -94,7 +94,7 @@ Deinstallieren: `pkg delete os-fritzbox-failover`. Dabei wird der Dienst gestopp
 | Kabel-Schnittstelle | Automatisch | z. B. WAN (`vtnet5`); automatisch = Schnittstelle des Gateways |
 | Normale Monitor-IP | `192.168.0.1` | die FRITZ!Box, gleiche Adresse wie das Gateway |
 | Fake-Monitor-IP | `192.0.2.1` | antwortet nie, löst den Failover aus |
-| Internet-Testadressen | `9.9.9.9, 1.1.1.1, 8.8.8.8` | werden über das Kabel angepingt; tot erst, wenn keine antwortet |
+| Internet-Testadressen | `9.9.9.9, 1.1.1.1, 8.8.8.8` | mindestens zwei; werden über das Kabel angepingt, tot erst, wenn keine antwortet |
 | Prüfintervall | 10 s | wie oft geprüft wird |
 | Pings pro Prüfung | 2 | je Testadresse |
 | Ping-Timeout | 2 s | |
@@ -130,7 +130,7 @@ Der Eintrag wird als CNAME „DNS only“ (nicht proxied) gesetzt; existiert er 
 
 ### Push-Benachrichtigung per Pushover (optional)
 
-Bei jedem Failover (und auf Wunsch bei der Rückschaltung) kommt eine Pushover-Nachricht mit Uhrzeit, Grund und der aktuellen öffentlichen IPv4-Adresse (ermittelt über api.ipify.org im Moment des Versands, also die der gerade genutzten Leitung). Nötig sind ein **Application API Token** (pushover.net → Your Applications → Create an Application) und dein **User Key**. Mit **„Send test push“** prüfst du die Einstellungen.
+Bei jedem Failover (und auf Wunsch bei der Rückschaltung) kommt eine Pushover-Nachricht mit Uhrzeit, Grund und der aktuellen öffentlichen IPv4-Adresse (ermittelt im Moment des Versands, also die der gerade genutzten Leitung). Die Dienste dafür sind einstellbar, Standard `https://ifconfig.me/ip` und `https://ip.me`; sie werden der Reihe nach über IPv4 gefragt. Mindestens zwei eintragen, falls einer ausfällt. Nötig sind ein **Application API Token** (pushover.net → Your Applications → Create an Application) und dein **User Key**. Mit **„Send test push“** prüfst du die Einstellungen.
 
 **Wichtig für beides:** Direkt beim Failover ist das Kabel tot, und die Firewall selbst erreicht Cloudflare/Pushover erst, wenn OPNsense umgeschaltet hat. Das Plugin versucht es deshalb bei jeder Prüfung erneut, bis es klappt. Damit die Firewall selbst über das Backup ins Internet kommt, unter **System → Einstellungen → Allgemein** „Allow default gateway switching“ aktivieren. Beides passiert nur bei echten Umschaltungen und beim Test-Failover, nie im Testmodus.
 

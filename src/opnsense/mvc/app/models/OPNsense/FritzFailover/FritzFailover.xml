@@ -149,6 +149,12 @@
             <Mask>/^[A-Za-z0-9]{0,40}$/</Mask>
             <ValidationMessage>The Pushover user or group key consists of letters and digits (30 characters).</ValidationMessage>
         </po_user>
+        <pubip_services type="CSVListField">
+            <Default>https://ifconfig.me/ip,https://ip.me</Default>
+            <Mask>/^https?:\/\/[a-zA-Z0-9.\-]+(:[0-9]{1,5})?(\/[a-zA-Z0-9._~\/?=&amp;%\-]*)?$/</Mask>
+            <MaskPerItem>Y</MaskPerItem>
+            <ValidationMessage>Please enter URLs like https://ifconfig.me/ip that return the plain IP address.</ValidationMessage>
+        </pubip_services>
         <po_failback type="BooleanField">
             <Default>1</Default>
             <Required>Y</Required>

@@ -12,6 +12,12 @@ is healthy again the normal monitor IP is restored.
 Plugin Changelog
 ================
 
+1.9
+
+* Public IP services configurable (default ifconfig.me and ip.me),
+  asked in order via IPv4; at least two required
+* At least two internet test addresses required
+
 1.8
 
 * Pushover messages include the current public IPv4 address

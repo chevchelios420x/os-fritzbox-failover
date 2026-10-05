@@ -63,9 +63,9 @@ class FritzFailover extends BaseModel
 
         $targets = array_filter(explode(',', (string)$this->probe_targets));
         if ($uses_ping) {
-            if (count($targets) == 0) {
+            if (count($targets) < 2) {
                 $messages->appendMessage(new Message(
-                    gettext('Please enter at least one internet test address, e.g. 9.9.9.9.'),
+                    gettext('Please enter at least two internet test addresses (e.g. 9.9.9.9 and 1.1.1.1), so a single unreachable server never triggers a failover.'),
                     'probe_targets'
                 ));
             } elseif (count($targets) > 5) {
@@ -116,6 +116,12 @@ class FritzFailover extends BaseModel
         }
 
         if ((string)$this->po_enabled === '1') {
+            if (count(array_filter(explode(',', (string)$this->pubip_services))) < 2) {
+                $messages->appendMessage(new Message(
+                    gettext('Please enter at least two public IP services, so the address is still found if one of them is down.'),
+                    'pubip_services'
+                ));
+            }
             foreach (['po_token', 'po_user'] as $field) {
                 if ((string)$this->$field === '') {
                     $messages->appendMessage(new Message(gettext('Required when Pushover notifications are enabled.'), $field));
