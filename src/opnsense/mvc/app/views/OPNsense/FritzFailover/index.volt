@@ -127,6 +127,7 @@ POSSIBILITY OF SUCH DAMAGE.
                 }
                 $('#ff_message').text(data.message || '');
                 renderEvents(data || {});
+                $('#ff_selfheal').text(data.last_selfheal ? fmtTime(data.last_selfheal) : '{{ lang._("not yet") }}');
                 if (state === 'test_failover' && data.test_total) {
                     testEnd = Date.now() + (data.test_left || 0) * 1000;
                     testTotal = data.test_total;
@@ -349,6 +350,7 @@ POSSIBILITY OF SUCH DAMAGE.
                 <tr><td>{{ lang._('Last check') }}</td><td id="ff_last">-</td></tr>
                 <tr><td>{{ lang._('Last switch to backup') }}</td><td id="ff_last_switch">-</td></tr>
                 <tr><td>{{ lang._('Backup active since') }}</td><td id="ff_backup_since">-</td></tr>
+                <tr><td>{{ lang._('Last self-healing restart') }}</td><td id="ff_selfheal">-</td></tr>
                 <tr><td>{{ lang._('Info') }}</td><td id="ff_message"></td></tr>
             </tbody>
         </table>

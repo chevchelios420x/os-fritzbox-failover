@@ -170,6 +170,10 @@ Prozesse: ein dauerhafter Überwachungsprozess (von `daemon(8)` bei einem Abstur
 
 Abhilfe in allen Fällen: Dienst unter **System → Diagnose → Dienste** neu starten (ein aktiver Failover bleibt dabei erhalten).
 
+### Selbstheilung
+
+Unter **Self-healing** (standardmäßig an, täglich 04:00 Uhr) startet das Plugin seinen eigenen Überwachungsprozess regelmäßig neu und leert seine Laufzeitdateien (Zähler, Temp-Dateien). Statistik und Umschalt-Verlauf bleiben erhalten. OPNsense, Routing, Firewall und dpinger werden dabei nicht angefasst. Der Neustart passiert nur, wenn alles in Ordnung ist (Status „Cable line OK“); während eines Failovers, eines Test-Failovers, beim Mitzählen von Fehlern oder solange eine Benachrichtigung/DNS-Umstellung aussteht, wird er auf das nächste Zeitfenster verschoben. Wählbar: täglich oder wöchentlich (Sonntag) und die Stunde.
+
 ### Notfall per SSH
 
 ```sh

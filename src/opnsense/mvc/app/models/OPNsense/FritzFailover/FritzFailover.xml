@@ -114,6 +114,25 @@
             <MaximumValue>300</MaximumValue>
             <ValidationMessage>Choose a value between 5 and 300 seconds.</ValidationMessage>
         </check_interval>
+        <selfheal_enabled type="BooleanField">
+            <Default>1</Default>
+            <Required>Y</Required>
+        </selfheal_enabled>
+        <selfheal_interval type="OptionField">
+            <Default>daily</Default>
+            <Required>Y</Required>
+            <OptionValues>
+                <daily>Daily</daily>
+                <weekly>Weekly (Sunday)</weekly>
+            </OptionValues>
+        </selfheal_interval>
+        <selfheal_hour type="IntegerField">
+            <Default>4</Default>
+            <Required>Y</Required>
+            <MinimumValue>0</MinimumValue>
+            <MaximumValue>23</MaximumValue>
+            <ValidationMessage>Choose an hour between 0 and 23.</ValidationMessage>
+        </selfheal_hour>
         <cf_enabled type="BooleanField">
             <Default>0</Default>
             <Required>Y</Required>

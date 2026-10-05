@@ -276,6 +276,14 @@ Pro Prüfung (Standard alle 10 s) 2–3 kurze PHP-Aufrufe, eine UPnP-/TR-064-Anf
 - In der Statistik steigt „Checks“ nicht mehr.
 - Abhilfe: Dienst neu starten; ein aktiver Failover bleibt dabei erhalten.
 
+### Selbstheilung (ab 1.14)
+
+- Optionaler Neustart des eigenen Überwachungsprozesses, Standard: an, täglich in der Stunde 04:00–04:59.
+- Ablauf: Der Prozess beendet sich selbst mit Exit-Code 0, `daemon(8)` startet ihn nach 10 Sekunden neu. Laut FreeBSD-Quellcode (`daemon.c`) startet `daemon` bei jedem Ende neu; nur ein SIGTERM an `daemon` selbst beendet die Überwachung. Der rc.d-Stopp-Haken läuft dabei nicht, die Monitor-IP wird also nie angefasst.
+- Geleert werden Zähler, Login-Pause, Statusdatei und Temp-Reste. Statistik und Verlauf bleiben.
+- Nur bei Status „ok“, ohne laufenden Test-Failover und ohne ausstehende Push-/DNS-Aufträge; höchstens einmal pro Zeitfenster (Sperre 20 Stunden).
+- Mit nachgebauten Programmen getestet: Neustart bei „ok“ in der eingestellten Stunde, kein zweiter Neustart im selben Fenster, kein Neustart während eines Failovers.
+
 ### Restrisiken
 
 - Was sich nur im Dauerbetrieb zeigt (z. B. Verhalten der FRITZ!Box bei Abfragen alle 10 s über Monate oder Speicherverhalten von PHP/OPNsense selbst), lässt sich nicht im Voraus testen. Die Warnung bei ausbleibenden Prüfungen macht ein Hängen sichtbar.

@@ -74,6 +74,8 @@ TEST_FILE="${RUNDIR}/fritzfailover.testfailover"
 HISTORY_DIR="/var/db/fritzfailover"
 HISTORY_FILE="${HISTORY_DIR}/history"
 HISTORY_KEEP=50
+# time of the last self-healing restart (kept across reboots)
+SELFHEAL_FILE="${HISTORY_DIR}/last_selfheal"
 # desired Cloudflare DNS target (normal|failover) until the update succeeded
 CF_PENDING_FILE="${RUNDIR}/fritzfailover.cf_pending"
 # Pushover messages not delivered yet:
@@ -242,6 +244,7 @@ write_state()
 		if [ -n "${TEST_LEFT}" ]; then
 			printf '"test_left":%s,"test_total":%s,' "${TEST_LEFT}" "${TEST_DURATION}"
 		fi
+		printf '"last_selfheal":%s,' "$(_l=$(cat "${SELFHEAL_FILE}" 2>/dev/null); is_uint "${_l}" && echo "${_l}" || echo 0)"
 		printf '"last_check":"%s","last_check_epoch":%s,"interval":%s,' "$(date '+%Y-%m-%d %H:%M:%S')" "$(date +%s)" "${FF_CHECK_INTERVAL:-10}"
 		printf '"message":"%s"}\n' "$(json_escape "${MESSAGE}")"
 	} > "${STATE_FILE}.tmp" && chmod 644 "${STATE_FILE}.tmp" && mv -f "${STATE_FILE}.tmp" "${STATE_FILE}"
@@ -952,6 +955,29 @@ do_state()
 # and closes the lock descriptor in the command it runs, so long-lived
 # processes started from there (dpinger via pluginctl, the test failover
 # timer) can never inherit and keep the lock.
+# Decides whether the monitor process may restart itself now (self-healing):
+# enabled, in the configured hour (and on Sunday for weekly), at most once per
+# slot, and only while everything is fine and nothing is pending. Statistics
+# and history are kept; daemon(8) starts the process again.
+selfheal_due()
+{
+	[ "${FF_SELFHEAL:-0}" = "1" ] || return 1
+	is_uint "${FF_SELFHEAL_HOUR:-}" || return 1
+	[ "$(date +%H | sed 's/^0//')" = "${FF_SELFHEAL_HOUR}" ] || return 1
+	if [ "${FF_SELFHEAL_INTERVAL}" = "weekly" ]; then
+		[ "$(date +%u)" = "7" ] || return 1
+	fi
+	# once per slot: not again within the last 20 hours
+	_last=$(cat "${SELFHEAL_FILE}" 2>/dev/null)
+	is_uint "${_last}" && [ $(($(date +%s) - _last)) -lt 72000 ] && return 1
+	# only while everything is fine and nothing is pending
+	grep -q '^{"status":"ok"' "${STATE_FILE}" 2>/dev/null || return 1
+	[ -f "${TEST_FILE}" ] && return 1
+	[ -s "${PUSH_QUEUE_FILE}" ] && return 1
+	[ -f "${CF_PENDING_FILE}" ] && return 1
+	return 0
+}
+
 locked()
 {
 	/usr/bin/lockf -k -s -t 60 "${LOCK_FILE}" "$0" "$@"
@@ -968,7 +994,19 @@ run)
 		locked check-locked &
 		wait $! || true
 		_interval=10
-		load_config >/dev/null 2>&1 && _interval=${FF_CHECK_INTERVAL}
+		if load_config >/dev/null 2>&1; then
+			_interval=${FF_CHECK_INTERVAL}
+			if selfheal_due; then
+				mkdir -p "${HISTORY_DIR}" 2>/dev/null
+				date +%s > "${SELFHEAL_FILE}"
+				# flush runtime files, keep statistics and history
+				rm -f "${COUNTER_FILE}" "${BACKOFF_FILE}" "${STATE_FILE}"
+				find "${RUNDIR}" -maxdepth 1 -type d -name 'fritzfailover.??????' -exec rm -rf {} + 2>/dev/null
+				log "self-healing: restarting the monitor process (statistics and history are kept)"
+				# daemon(8) starts a fresh process
+				exit 0
+			fi
+		fi
 		sleep "${_interval}" &
 		wait $!
 	done

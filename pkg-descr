@@ -12,6 +12,12 @@ is healthy again the normal monitor IP is restored.
 Plugin Changelog
 ================
 
+1.14
+
+* Optional self-healing: daily or weekly restart of the plugin's own
+  monitor process with flush of runtime files (default: on, daily 04:00);
+  statistics and history are kept, only while everything is fine
+
 1.13
 
 * Status page warns when the monitor has not checked for too long

@@ -131,6 +131,29 @@
     </field>
     <field>
         <type>header</type>
+        <label>Self-healing</label>
+        <collapse>true</collapse>
+    </field>
+    <field>
+        <id>fritzfailover.selfheal_enabled</id>
+        <label>Regular self-healing restart</label>
+        <type>checkbox</type>
+        <help>Restarts only this plugin's own monitor process at the chosen time and clears its runtime files (counters, temporary files). Statistics and switch history are kept. OPNsense, routing, firewall and dpinger are not touched. For safety it only happens while everything is fine (state &quot;Cable line OK&quot;); during a failover, a test failover, while failures are being counted or while a notification/DNS update is pending it is postponed to the next time slot. Recommended: on, daily.</help>
+    </field>
+    <field>
+        <id>fritzfailover.selfheal_interval</id>
+        <label>Self-healing interval</label>
+        <type>dropdown</type>
+        <help>Daily, or weekly on Sunday.</help>
+    </field>
+    <field>
+        <id>fritzfailover.selfheal_hour</id>
+        <label>Self-healing hour</label>
+        <type>text</type>
+        <help>Hour of the day (0-23, local time of the firewall) in which the restart takes place. Default: 4 (between 04:00 and 04:59).</help>
+    </field>
+    <field>
+        <type>header</type>
         <label>Cloudflare DNS switch (optional)</label>
         <collapse>true</collapse>
     </field>
