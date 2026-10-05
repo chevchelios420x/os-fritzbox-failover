@@ -166,11 +166,45 @@ function cf_get_record(FritzFailover $mdl, $zone, $record)
     return [$recs[0] ?? [], null];
 }
 
-/* asks the configured services in order (IPv4 only, plain text answer) */
-function public_ipv4($services)
+/* IPv4 address of an interface device, e.g. vtnet5 */
+function iface_ipv4($dev)
+{
+    if (!preg_match('/^[a-zA-Z0-9_.]+$/', (string)$dev)) {
+        return '';
+    }
+    $out = (string)shell_exec('/sbin/ifconfig ' . escapeshellarg($dev) . ' inet 2>/dev/null');
+    return preg_match('/\binet (\d+\.\d+\.\d+\.\d+)/', $out, $m) ? $m[1] : '';
+}
+
+/* device of a gateway, '' when unknown */
+function gateway_device($name)
+{
+    $gw = $name !== '' ? find_gateway($name) : null;
+    return $gw !== null && !empty($gw['if']) ? $gw['if'] : '';
+}
+
+/* dpinger status per gateway name: none (online), down, loss, delay, ... */
+function gateway_states()
+{
+    $data = json_decode((string)shell_exec('/usr/local/opnsense/scripts/routes/gateway_status.php 2>/dev/null'), true);
+    $result = [];
+    foreach (is_array($data) ? $data : [] as $gw) {
+        if (!empty($gw['name'])) {
+            $result[$gw['name']] = $gw['status'] ?? '';
+        }
+    }
+    return $result;
+}
+
+/* asks the configured services in order (IPv4 only, plain text answer);
+ * with a source address the request leaves through that line (force gw rule) */
+function public_ipv4($services, $source = '')
 {
     foreach (array_filter(explode(',', $services)) as $url) {
         $ch = curl_init(trim($url));
+        if ($source !== '') {
+            curl_setopt($ch, CURLOPT_INTERFACE, $source);
+        }
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => 4,
@@ -267,6 +301,13 @@ switch ($cmd) {
         echo json_encode($list) . "\n";
         break;
 
+    case 'gwstatus':
+        /* "<cable status> <backup status>" as reported by OPNsense (dpinger) */
+        $states = gateway_states();
+        echo ($states[(string)$mdl->gateway] ?? 'unknown') . ' ' .
+            ((string)$mdl->backup_gateway !== '' ? ($states[(string)$mdl->backup_gateway] ?? 'unknown') : '-') . "\n";
+        break;
+
     case 'cfsync':
         /* point the CNAME to the normal or failover destination */
         $which = $argv[2] ?? '';
@@ -336,8 +377,18 @@ switch ($cmd) {
         }
         $title = $cmd === 'pushtest' ? 'OPNsense FRITZ!Box failover' : ($argv[2] ?? 'OPNsense FRITZ!Box failover');
         $message = $cmd === 'pushtest' ? 'Test notification: Pushover works.' : ($argv[3] ?? '');
-        /* public IPv4 the firewall is currently seen with (i.e. of the line in use) */
-        $pubip = public_ipv4((string)$mdl->pubip_services);
+        /* public IPv4 of the line now in use: backup line after a failover,
+         * cable line after switching back (request sourced from that line) */
+        $which = $argv[4] ?? '';
+        $dev = $which === 'failover' ? gateway_device((string)$mdl->backup_gateway)
+            : ($which === 'failback' ? gateway_device((string)$mdl->gateway) : '');
+        $src = $dev !== '' ? iface_ipv4($dev) : '';
+        $pubip = public_ipv4((string)$mdl->pubip_services, $src);
+        if ($which === 'failover' && $src !== '') {
+            $pubip .= ' (backup line)';
+        } elseif ($which === 'failback' && $src !== '') {
+            $pubip .= ' (cable line)';
+        }
         $message .= "\nPublic IP: {$pubip}";
         list($data, $err) = http_json('POST', 'https://api.pushover.net/1/messages.json', [], null, [
             'token' => (string)$mdl->po_token,

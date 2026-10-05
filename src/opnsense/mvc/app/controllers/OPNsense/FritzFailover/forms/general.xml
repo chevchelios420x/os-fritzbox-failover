@@ -60,6 +60,12 @@
         <help>The cable gateway from System &gt; Gateways &gt; Configuration. Pick it from the list; only saved gateways can be managed (automatically created ones such as WAN_DHCP must be opened and saved once). Its monitor IP is changed automatically by this plugin.</help>
     </field>
     <field>
+        <id>fritzfailover.backup_gateway</id>
+        <label>Backup gateway (optional)</label>
+        <type>text</type>
+        <help>The backup gateway (e.g. the 5G/LTE line). Only used for notifications: the public IP in the failover message is looked up through this line. Leave empty if you do not use Pushover.</help>
+    </field>
+    <field>
         <id>fritzfailover.interface</id>
         <label>Cable interface</label>
         <type>dropdown</type>

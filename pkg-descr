@@ -12,6 +12,13 @@ is healthy again the normal monitor IP is restored.
 Plugin Changelog
 ================
 
+1.10
+
+* Push notifications wait until OPNsense really switched (cable gateway
+  reported down / online again), at most 5 minutes
+* Public IP looked up through the line in use: backup line after a
+  failover, cable line after switching back (new field: backup gateway)
+
 1.9
 
 * Public IP services configurable (default ifconfig.me and ip.me),

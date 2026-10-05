@@ -46,6 +46,10 @@
             <Mask>/^[a-zA-Z0-9_]{1,32}$/</Mask>
             <ValidationMessage>Gateway names consist of letters, digits and underscores only (max. 32 characters).</ValidationMessage>
         </gateway>
+        <backup_gateway type="TextField">
+            <Mask>/^[a-zA-Z0-9_]{1,32}$/</Mask>
+            <ValidationMessage>Gateway names consist of letters, digits and underscores only (max. 32 characters).</ValidationMessage>
+        </backup_gateway>
         <interface type="InterfaceField">
             <Required>N</Required>
             <BlankDesc>Automatic (use the gateway's interface)</BlankDesc>

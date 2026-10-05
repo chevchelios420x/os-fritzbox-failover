@@ -76,7 +76,8 @@ HISTORY_FILE="${HISTORY_DIR}/history"
 HISTORY_KEEP=50
 # desired Cloudflare DNS target (normal|failover) until the update succeeded
 CF_PENDING_FILE="${RUNDIR}/fritzfailover.cf_pending"
-# Pushover messages not delivered yet: "<epoch><TAB><title><TAB><message>"
+# Pushover messages not delivered yet:
+#   "<epoch><TAB><failover|failback><TAB><title><TAB><message>"
 PUSH_QUEUE_FILE="${RUNDIR}/fritzfailover.push_queue"
 TAG="fritzfailover"
 
@@ -518,9 +519,12 @@ cf_sync()
 	fi
 }
 
-# Sends queued Pushover messages; undelivered ones stay queued and are
-# retried on every check (right after a failover the firewall itself may
-# still be routing via the dead line). Messages older than a day are dropped.
+# Sends queued Pushover messages once OPNsense has really switched: a
+# failover message waits until OPNsense reports the cable gateway as not
+# online, a failback message until it is online again (so the message and
+# the public IP reflect the line actually in use). After 5 minutes a message
+# is sent anyway with a note. Undelivered messages are retried on every check;
+# messages older than a day are dropped.
 push_sync()
 {
 	[ -s "${PUSH_QUEUE_FILE}" ] || return 0
@@ -529,18 +533,34 @@ push_sync()
 		return 0
 	fi
 	_now=$(date +%s)
+	_cable=$(${HELPER} gwstatus 2>/dev/null | awk '{ print $1 }')
 	_keep="${PUSH_QUEUE_FILE}.tmp"
 	: > "${_keep}"
 	_tab=$(printf '\t')
-	while IFS="${_tab}" read -r _ts _title _msg; do
+	while IFS="${_tab}" read -r _ts _kind _title _msg; do
 		is_uint "${_ts}" || continue
-		[ $((_now - _ts)) -gt 86400 ] && continue
+		_age=$((_now - _ts))
+		[ "${_age}" -gt 86400 ] && continue
+		_ready=0
+		case "${_kind}:${_cable}" in
+		failover:none|failover:unknown|failover:) ;;
+		failover:*) _ready=1 ;;
+		failback:none) _ready=1 ;;
+		esac
+		_note=""
+		if [ "${_ready}" != "1" ]; then
+			if [ "${_age}" -lt 300 ]; then
+				printf '%s\t%s\t%s\t%s\n' "${_ts}" "${_kind}" "${_title}" "${_msg}" >> "${_keep}"
+				continue
+			fi
+			_note=" (note: OPNsense did not report the expected gateway state within 5 minutes, current state: ${_cable:-unknown})"
+		fi
 		_when=$(date -r "${_ts}" '+%H:%M:%S')
-		if _out=$(${HELPER} pushover "${_title}" "${_when}: ${_msg}" 2>&1); then
+		if _out=$(${HELPER} pushover "${_title}" "${_when}: ${_msg}${_note}" "${_kind}" 2>&1); then
 			log "Pushover: sent '${_title}'"
 		else
 			log_err "Pushover notification failed, will retry: ${_out}"
-			printf '%s\t%s\t%s\n' "${_ts}" "${_title}" "${_msg}" >> "${_keep}"
+			printf '%s\t%s\t%s\t%s\n' "${_ts}" "${_kind}" "${_title}" "${_msg}" >> "${_keep}"
 		fi
 	done < "${PUSH_QUEUE_FILE}"
 	mv -f "${_keep}" "${PUSH_QUEUE_FILE}"
@@ -565,7 +585,7 @@ notify_switch()
 			else
 				_title="Cable line active again"
 			fi
-			printf '%s\t%s\t%s\n' "$(date +%s)" "${_title}" "$(printf '%s' "$2" | tr -d '\t\n')" >> "${PUSH_QUEUE_FILE}"
+			printf '%s\t%s\t%s\t%s\n' "$(date +%s)" "$1" "${_title}" "$(printf '%s' "$2" | tr -d '\t\n')" >> "${PUSH_QUEUE_FILE}"
 			push_sync
 		fi
 	fi

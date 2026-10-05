@@ -101,6 +101,10 @@ class FritzFailover extends BaseModel
             ));
         }
 
+        if ((string)$this->backup_gateway !== '' && (string)$this->backup_gateway === (string)$this->gateway) {
+            $messages->appendMessage(new Message(gettext('The backup gateway must be a different gateway.'), 'backup_gateway'));
+        }
+
         if ((string)$this->cf_enabled === '1') {
             foreach (['cf_token', 'cf_record', 'cf_normal_target', 'cf_failover_target'] as $field) {
                 if ((string)$this->$field === '') {

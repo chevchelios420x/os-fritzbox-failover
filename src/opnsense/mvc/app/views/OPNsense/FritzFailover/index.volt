@@ -159,36 +159,45 @@ POSSIBILITY OF SUCH DAMAGE.
             });
         }
 
+        function gatewayDropdown(fieldId, gateways, allowEmpty) {
+            const input = $('#fritzfailover\\.' + fieldId);
+            if (!input.length || !gateways.length) {
+                return;
+            }
+            const selectId = 'ff_select_' + fieldId;
+            $('#' + selectId).remove();
+            const select = $('<select class="form-control"/>').attr('id', selectId);
+            const current = input.val();
+            let found = !current && allowEmpty;
+            if (allowEmpty) {
+                select.append($('<option/>').val('').text('{{ lang._("(none)") }}'));
+            }
+            gateways.forEach(function (gw) {
+                let text = gw.name + ' (' + (gw.interface || '?') + (gw.address ? ', ' + gw.address : '') + ')';
+                if (!gw.saved && !allowEmpty) {
+                    text += ' - {{ lang._("not saved yet, open it once under System > Gateways and click Save") }}';
+                }
+                const opt = $('<option/>').val(gw.name).text(text);
+                if (gw.name === current) {
+                    opt.prop('selected', true);
+                    found = true;
+                }
+                select.append(opt);
+            });
+            if (current && !found) {
+                select.prepend($('<option/>').val(current).text(current + ' - {{ lang._("not found") }}').prop('selected', true));
+            }
+            select.on('change', function () {
+                input.val($(this).val()).trigger('change');
+            });
+            input.val(select.val()).hide().after(select);
+        }
+
         function setupGatewayDropdown() {
-            const input = $('#fritzfailover\\.gateway');
             ajaxGet('/api/fritzfailover/service/gateways', {}, function (data) {
                 const gateways = (data && data.gateways) || [];
-                if (!input.length || !gateways.length) {
-                    return;
-                }
-                $('#ff_gateway_select').remove();
-                const select = $('<select id="ff_gateway_select" class="form-control"/>');
-                const current = input.val();
-                let found = false;
-                gateways.forEach(function (gw) {
-                    let text = gw.name + ' (' + (gw.interface || '?') + (gw.address ? ', ' + gw.address : '') + ')';
-                    if (!gw.saved) {
-                        text += ' - {{ lang._("not saved yet, open it once under System > Gateways and click Save") }}';
-                    }
-                    const opt = $('<option/>').val(gw.name).text(text);
-                    if (gw.name === current) {
-                        opt.prop('selected', true);
-                        found = true;
-                    }
-                    select.append(opt);
-                });
-                if (current && !found) {
-                    select.prepend($('<option/>').val(current).text(current + ' - {{ lang._("not found") }}').prop('selected', true));
-                }
-                select.on('change', function () {
-                    input.val($(this).val()).trigger('change');
-                });
-                input.val(select.val()).hide().after(select);
+                gatewayDropdown('gateway', gateways, false);
+                gatewayDropdown('backup_gateway', gateways, true);
             });
         }
 
