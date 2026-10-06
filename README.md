@@ -188,6 +188,16 @@ Das Plugin ändert nichts an LAN, Firewall-Regeln, Web-GUI oder SSH. Die OPNsens
 
 ---
 
+## FRITZ!Box-Diagnose
+
+`tools/fritzbox_probe.py` fragt eine oder mehrere FRITZ!Boxen nur lesend ab: welche WAN-Dienste sie anbietet und was alle Abfragen ohne Parameter liefern (z. B. `NewConnectionStatus`). IP- und MAC-Adressen werden maskiert, die Ausgabe kann geteilt werden. Auf der OPNsense (funktioniert auch in der Standard-Shell `csh`):
+
+```sh
+curl -fsSL -o /tmp/fbprobe.py https://raw.githubusercontent.com/chevchelios420x/os-fritzbox-failover/main/tools/fritzbox_probe.py && python3 /tmp/fbprobe.py 192.168.0.1 192.168.1.1
+```
+
+Mit `--user BENUTZER` werden zusätzlich die TR-064-Abfragen mit Anmeldung ausgeführt (das Passwort wird abgefragt).
+
 ## Selbst bauen / Release erstellen
 
 Bei jedem Tag `vX.Y` (oder GitHub-Release) baut `.github/workflows/release.yml` das Paket in einer FreeBSD-14-VM mit dem offiziellen [opnsense/plugins](https://github.com/opnsense/plugins)-Build-System (`make package`) und hängt `os-fritzbox-failover-X.Y.pkg` sowie `os-fritzbox-failover.pkg` an das Release.
