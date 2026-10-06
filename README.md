@@ -17,7 +17,7 @@ Das Plugin wird als fertiges `.pkg` installiert. Auf der Firewall müssen **kein
 
 Das Gateway wird im Normalbetrieb **gegen die FRITZ!Box** überwacht (stabil, kein Fehlalarm). Ob das Internet hinter der Kabelleitung wirklich funktioniert, entscheidet das Plugin. Dafür prüft es alle paar Sekunden:
 
-1. **Den Status der FRITZ!Box**: den Wert `NewConnectionStatus` aus `WANIPConnection:1` → `GetStatusInfo`, wahlweise per UPnP ohne Anmeldung (empfohlen) oder per TR-064 mit eigenem FRITZ!Box-Benutzer. Er erkennt, wenn die Box ihre Verbindung verliert (Kabel-Sync weg, keine IP-Adresse mehr). Einen gestörten Vodafone-Backbone erkennt er **nicht**, weil die Box dann weiter „Connected“ meldet.
+1. **Den Status der FRITZ!Box**: den Wert `NewConnectionStatus` aus `WANIPConnection:1` → `GetStatusInfo`, wahlweise per UPnP ohne Anmeldung (empfohlen) oder per TR-064 mit eigenem FRITZ!Box-Benutzer. Er erkennt, wenn die Box ihre Verbindung verliert (Kabel-Sync weg, keine IP-Adresse mehr). Einen gestörten Vodafone-Backbone erkennt er **nicht**, weil die Box dann weiter „Connected“ meldet. Zusätzlich wird der physische Leitungsstatus abgefragt (`WANCommonInterfaceConfig:1` → `NewPhysicalLinkStatus`); meldet die Box „Down“, gilt die Leitung sofort als gestört. Beide Abfragen funktionieren per UPnP ohne Passwort auf allen geprüften Modellen.
 2. **Einen Internet-Test über die Kabelleitung**: Ping an mehrere Adressen gleichzeitig (Standard `9.9.9.9`, `1.1.1.1`, `8.8.8.8`), mit der Adresse der Kabel-Schnittstelle als Absender. Die OPNsense-Regel „let out anything from firewall host itself (force gw)“ schickt diese Pings immer über das Kabel-Gateway, auch während des Failovers. Für jeden Test wird ein neuer Ping-Prozess gestartet. Die Leitung gilt erst als tot, wenn **keine** Adresse antwortet.
 
 Welche Prüfungen benutzt werden, stellst du in der GUI ein: beide (empfohlen), nur die FRITZ!Box oder nur der Ping.
@@ -192,9 +192,9 @@ Das Plugin ändert nichts an LAN, Firewall-Regeln, Web-GUI oder SSH. Die OPNsens
 
 | Modell | FRITZ!OS | Anschluss | Status per UPnP (ohne Passwort) |
 |---|---|---|---|
-| FRITZ!Box 6660 Cable | 8.25 | Kabel (Vodafone) | `WANIPConnection:1` → `Connected` ✔ |
-| FRITZ!Box 7590 | 8.25 | Ethernet/ATA (externer Zugang) | `WANIPConnection:1` → `Connected` ✔ |
-| FRITZ!Box 6850 5G | 8.25 | 5G/LTE (Carrier-NAT) | `WANIPConnection:1` → `Connected` ✔ |
+| FRITZ!Box 6660 Cable | 8.25 | Kabel (Vodafone) | `WANIPConnection:1` → `Connected` ✔, Leitungsstatus ✔ |
+| FRITZ!Box 7590 | 8.25 | Ethernet/ATA (externer Zugang) | `WANIPConnection:1` → `Connected` ✔, Leitungsstatus ✔ |
+| FRITZ!Box 6850 5G | 8.25 | 5G/LTE (Carrier-NAT) | `WANIPConnection:1` → `Connected` ✔, Leitungsstatus ✔ |
 | FRITZ!Box mit DSL und PPPoE-Einwahl | – | DSL | noch nicht geprüft (Status vermutlich über `WANPPPConnection:1`) |
 
 Ausgaben weiterer Modelle mit dem Diagnose-Skript sind willkommen.

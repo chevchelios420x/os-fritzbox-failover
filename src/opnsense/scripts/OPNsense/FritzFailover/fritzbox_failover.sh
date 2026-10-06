@@ -94,6 +94,9 @@ TR064_SERVICE="urn:dslforum-org:service:WANIPConnection:1"
 TR064_URL_PATH="/upnp/control/wanipconnection1"
 IGD_SERVICE="urn:schemas-upnp-org:service:WANIPConnection:1"
 IGD_URL_PATH="/igdupnp/control/WANIPConn1"
+# physical line state, available without login on all verified models
+IGD_LINK_SERVICE="urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1"
+IGD_LINK_PATH="/igdupnp/control/WANCommonIFC1"
 
 FAILS=0
 OKS=0
@@ -258,18 +261,19 @@ soap_call()
 	_service="$1"
 	_path="$2"
 	_auth="$3"
-	_body="<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:GetStatusInfo xmlns:u=\"${_service}\"></u:GetStatusInfo></s:Body></s:Envelope>"
+	_action="${4:-GetStatusInfo}"
+	_body="<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:${_action} xmlns:u=\"${_service}\"></u:${_action}></s:Body></s:Envelope>"
 	if [ "${_auth}" = "1" ]; then
 		${HELPER} curlcfg 2>/dev/null | curl -sS -K - --anyauth \
 		    --connect-timeout 3 --max-time 6 \
 		    -H 'Content-Type: text/xml; charset="utf-8"' \
-		    -H "SoapAction: ${_service}#GetStatusInfo" \
+		    -H "SoapAction: ${_service}#${_action}" \
 		    --data-binary "${_body}" -w '\n%{http_code}' \
 		    "http://${FF_FRITZBOX_IP}:${FF_TR064_PORT}${_path}" 2>/dev/null
 	else
 		curl -sS --connect-timeout 3 --max-time 6 \
 		    -H 'Content-Type: text/xml; charset="utf-8"' \
-		    -H "SoapAction: ${_service}#GetStatusInfo" \
+		    -H "SoapAction: ${_service}#${_action}" \
 		    --data-binary "${_body}" -w '\n%{http_code}' \
 		    "http://${FF_FRITZBOX_IP}:${FF_TR064_PORT}${_path}" 2>/dev/null
 	fi
@@ -360,6 +364,21 @@ tr064_check()
 	if [ -n "${_note}" ] && [ -n "${_status}" ]; then
 		TR_TEXT="${TR_TEXT}; ${_note}"
 	fi
+
+	# Physical line (cable sync / DSL / mobile / Ethernet WAN) via UPnP
+	# GetCommonLinkProperties: "Down" means the line is gone, whatever the
+	# connection status says. No answer is ignored (older or other models).
+	_resp=$(soap_call "${IGD_LINK_SERVICE}" "${IGD_LINK_PATH}" 0 GetCommonLinkProperties)
+	_link=$(printf '%s' "${_resp}" | tr -d '\r' | sed -n 's/.*<NewPhysicalLinkStatus>\([A-Za-z]*\)<\/NewPhysicalLinkStatus>.*/\1/p' | head -n 1)
+	case "${_link}" in
+	Down)
+		TR_STATE="down"
+		TR_TEXT="${TR_TEXT}; physical link Down"
+		;;
+	Up|Initializing|Unavailable)
+		TR_TEXT="${TR_TEXT}; link ${_link}"
+		;;
+	esac
 	return 0
 }
 

@@ -12,6 +12,12 @@ is healthy again the normal monitor IP is restored.
 Plugin Changelog
 ================
 
+1.15
+
+* FRITZ!Box physical link status (UPnP GetCommonLinkProperties) as an
+  additional signal: "Down" counts as failure; verified on 6660 Cable,
+  6850 5G and 7590 (FRITZ!OS 8.25)
+
 1.14
 
 * Optional self-healing: daily or weekly restart of the plugin's own
