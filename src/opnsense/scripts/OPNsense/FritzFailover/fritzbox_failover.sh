@@ -78,6 +78,7 @@ HISTORY_KEEP=50
 SELFHEAL_FILE="${HISTORY_DIR}/last_selfheal"
 # debug mode: one detailed line per check, switches itself off
 DEBUG_UNTIL_FILE="${HISTORY_DIR}/debug_until"
+DEBUG_AT_FILE="${HISTORY_DIR}/debug_at"
 DEBUG_LOG="${HISTORY_DIR}/debug.log"
 DEBUG_LAST="${RUNDIR}/fritzfailover.debug_last"
 DEBUG_HOURS=12
@@ -1017,6 +1018,12 @@ upnp_values()
 # which a relevant value changed against the previous check start with "*".
 debug_record()
 {
+	# scheduled start reached?
+	_at=$(cat "${DEBUG_AT_FILE}" 2>/dev/null)
+	if is_uint "${_at}" && [ "$(date +%s)" -ge "${_at}" ]; then
+		rm -f "${DEBUG_AT_FILE}"
+		do_debug start scheduled
+	fi
 	debug_active || return 0
 	[ -n "${FF_FRITZBOX_IP:-}" ] || return 0
 	_fb=$(upnp_values "${IGD_SERVICE}" "${IGD_URL_PATH}" GetStatusInfo)
@@ -1042,14 +1049,25 @@ do_debug()
 {
 	mkdir -p "${HISTORY_DIR}" 2>/dev/null
 	case "$1" in
+	schedule)
+		if is_uint "${2:-}" && [ "$2" -gt "$(date +%s)" ]; then
+			echo "$2" > "${DEBUG_AT_FILE}"
+			log "debug mode scheduled for $(date -r "$2" '+%Y-%m-%d %H:%M')"
+		fi
+		;;
+	unschedule)
+		rm -f "${DEBUG_AT_FILE}"
+		;;
 	start)
+		rm -f "${DEBUG_AT_FILE}"
 		_until=$(($(date +%s) + DEBUG_HOURS * 3600))
 		echo "${_until}" > "${DEBUG_UNTIL_FILE}"
 		rm -f "${DEBUG_LAST}"
 		_ver=$(sed -n 's/.*"product_version": *"\([^"]*\)".*/\1/p' /usr/local/opnsense/version/fritzbox-failover 2>/dev/null)
 		load_config >/dev/null 2>&1
 		{
-			printf '%s === debug mode started, ends %s (plugin %s, %s) ===\n' "$(date '+%Y-%m-%d %H:%M:%S')" \
+			printf '%s === debug mode started%s, ends %s (plugin %s, %s) ===\n' "$(date '+%Y-%m-%d %H:%M:%S')" \
+			    "$([ "${2:-}" = "scheduled" ] && echo ' (scheduled)')" \
 			    "$(date -r "${_until}" '+%Y-%m-%d %H:%M')" "${_ver:-?}" "$(/usr/local/sbin/opnsense-version 2>/dev/null)"
 			printf '    settings: mode=%s gateway=%s backup=%s fritzbox=%s targets=%s interval=%ss fail=%s recover=%s test_mode=%s\n' \
 			    "${FF_CHECK_MODE:-?}" "${FF_GATEWAY:-?}" "${FF_BACKUP_GATEWAY:--}" "${FF_FRITZBOX_IP:-?}" \
@@ -1075,7 +1093,9 @@ do_debug()
 		[ "${_until}" -gt "$(date +%s)" ] || _until=0
 		_size=0
 		[ -f "${DEBUG_LOG}" ] && _size=$(stat -f %z "${DEBUG_LOG}" 2>/dev/null || wc -c < "${DEBUG_LOG}")
-		printf '{"active":%s,"until":%s,"size":%s}\n' "$([ "${_until}" -gt 0 ] && echo true || echo false)" "${_until}" "$(echo ${_size} | tr -dc 0-9)"
+		_at=$(cat "${DEBUG_AT_FILE}" 2>/dev/null)
+		is_uint "${_at}" || _at=0
+		printf '{"active":%s,"until":%s,"scheduled":%s,"size":%s}\n' "$([ "${_until}" -gt 0 ] && echo true || echo false)" "${_until}" "${_at}" "$(echo ${_size} | tr -dc 0-9)"
 		;;
 	log)
 		[ -f "${DEBUG_LOG}" ] && tail -c 10485760 "${DEBUG_LOG}"
@@ -1167,7 +1187,7 @@ resetstats)
 	rm -f "${STATS_FILE}"
 	;;
 debug)
-	do_debug "${2:-status}"
+	do_debug "${2:-status}" "${3:-}"
 	;;
 testfailover)
 	locked testfailover-locked

@@ -120,17 +120,23 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
-     * debug mode: start (12 hours), stop, clear (POST)
-     * @param string $what start|stop|clear
+     * debug mode: start (12 hours), stop, clear, schedule <unix time>, unschedule (POST)
+     * @param string $what start|stop|clear|schedule|unschedule
+     * @param string $at unix time for schedule
      * @return array
      */
-    public function debugAction($what = 'status')
+    public function debugAction($what = 'status', $at = '')
     {
-        if (in_array($what, ['start', 'stop', 'clear'])) {
+        if (in_array($what, ['start', 'stop', 'clear', 'unschedule'])) {
             if (!$this->request->isPost()) {
                 return ['status' => 'failed', 'message' => 'POST required'];
             }
             (new Backend())->configdRun('fritzfailover debug ' . $what);
+        } elseif ($what === 'schedule') {
+            if (!$this->request->isPost() || !ctype_digit((string)$at)) {
+                return ['status' => 'failed', 'message' => 'POST with a timestamp required'];
+            }
+            (new Backend())->configdpRun('fritzfailover debug schedule', [(string)$at]);
         }
         $status = json_decode(trim((new Backend())->configdRun('fritzfailover debug status')), true);
         return is_array($status) ? $status : ['active' => false, 'until' => 0, 'size' => 0];

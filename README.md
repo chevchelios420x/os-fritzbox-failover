@@ -172,14 +172,14 @@ Abhilfe in allen Fällen: Dienst unter **System → Diagnose → Dienste** neu s
 
 ### Debug-Modus
 
-Für die Analyse eines Ausfalls (z. B. wenn ein Techniker an der Leitung arbeitet): Auf der Statusseite **„Start debug mode (12 hours)“** drücken. Ab dann wird bei jeder Prüfung eine Zeile geschrieben mit
+Für die Analyse eines Ausfalls (z. B. wenn ein Techniker an der Leitung arbeitet): Auf der Statusseite ganz unten den Bereich **Debug mode** aufklappen und **„Start debug mode (12 hours)“** drücken. Ab dann wird bei jeder Prüfung eine Zeile geschrieben mit
 - Entscheidung des Plugins, Zählern und aktiver Monitor-IP,
 - Rohwerten der FRITZ!Box (Verbindungsstatus, letzter Verbindungsfehler, Uptime, physischer Leitungsstatus, Anschlussart),
 - Ergebnis jedes Test-Pings,
 - Sicht von OPNsense auf Kabel- und Backup-Gateway (Status, Verlust, Latenz, Monitor-IP),
 - Standardroute der Firewall.
 
-Zeilen, in denen sich etwas Relevantes geändert hat, beginnen mit `*`. Der Modus endet nach spätestens 12 Stunden von selbst. Mit **„Download debug log“** lädst du die Datei herunter (`/var/db/fritzfailover/debug.log`, max. 20 MB). Die tägliche Selbstheilung löscht das Log, aber nie während einer laufenden Aufzeichnung. Die öffentliche IP wird nicht protokolliert.
+Zeilen, in denen sich etwas Relevantes geändert hat, beginnen mit `*`. Der Modus endet nach spätestens 12 Stunden von selbst. Er lässt sich auch **planen**: Datum und Uhrzeit wählen, „Schedule“ drücken; ab dann läuft er 12 Stunden (der Dienst muss dafür laufen). Mit **„Download debug log“** lädst du die Datei herunter (`/var/db/fritzfailover/debug.log`, max. 20 MB). Die tägliche Selbstheilung löscht das Log, aber nie während einer laufenden Aufzeichnung. Die öffentliche IP wird nicht protokolliert.
 
 ### Selbstheilung
 

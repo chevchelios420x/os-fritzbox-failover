@@ -280,6 +280,20 @@ POSSIBILITY OF SUCH DAMAGE.
             $('#ff_debug_size').text(kb + ' KB');
             $('#debugStartAct').toggle(!d.active);
             $('#debugStopAct').toggle(!!d.active);
+            if (d.scheduled) {
+                $('#ff_debug_sched').text('{{ lang._("starts at") }} ' + fmtTime(d.scheduled) + ' {{ lang._("(runs 12 hours)") }}');
+                $('#debugUnscheduleAct').show();
+            } else {
+                $('#ff_debug_sched').text('');
+                $('#debugUnscheduleAct').hide();
+            }
+            if (d.active) {
+                $('#ff_debug_badge').text('{{ lang._("active") }}').show();
+            } else if (d.scheduled) {
+                $('#ff_debug_badge').text('{{ lang._("scheduled") }} ' + fmtTime(d.scheduled)).show();
+            } else {
+                $('#ff_debug_badge').hide();
+            }
         }
         function debugCall(what) {
             ajaxCall('/api/fritzfailover/service/debug/' + what, {}, renderDebug);
@@ -304,6 +318,23 @@ POSSIBILITY OF SUCH DAMAGE.
                 URL.revokeObjectURL(a.href);
             });
         });
+        $('.ff-toggle').click(function () {
+            const target = $($(this).data('target'));
+            target.toggle();
+            $(this).find('i').first().toggleClass('fa-chevron-down', target.is(':visible')).toggleClass('fa-chevron-right', !target.is(':visible'));
+        });
+        $('#debugScheduleAct').click(function () {
+            const val = $('#ff_debug_at').val();
+            const ts = val ? Math.floor(new Date(val).getTime() / 1000) : 0;
+            if (!ts || ts <= Date.now() / 1000) {
+                BootstrapDialog.show({type: BootstrapDialog.TYPE_WARNING, title: '{{ lang._("Debug mode") }}',
+                    message: '{{ lang._("Please choose a date and time in the future.") }}'});
+                return;
+            }
+            ajaxCall('/api/fritzfailover/service/debug/schedule/' + ts, {}, renderDebug);
+        });
+        $('#debugUnscheduleAct').click(function () { debugCall('unschedule'); });
+
         function refreshDebug() { ajaxGet('/api/fritzfailover/service/debug/status', {}, renderDebug); }
         refreshDebug();
         setInterval(refreshDebug, 30000);
@@ -406,20 +437,10 @@ POSSIBILITY OF SUCH DAMAGE.
         <button class="btn btn-default btn-xs" id="restoreAct" type="button">
             <i class="fa fa-undo fa-fw"></i> {{ lang._('Restore normal monitor IP') }}
         </button>
-        <h2>{{ lang._('Debug mode') }}</h2>
-        <p>{{ lang._('Records one detailed line per check: plugin decision, raw FRITZ!Box values (connection status, last error, physical link), every test ping, how OPNsense sees both gateways and the default route of the firewall. Lines in which something relevant changed start with *. Use it e.g. while a technician works on the line, then download the log. Switches itself off after 12 hours. Daily self-healing deletes the log, except while debug mode is running.') }}</p>
-        <table class="table table-condensed">
-            <tbody>
-                <tr><td style="width:22%">{{ lang._('State') }}</td><td><span id="ff_debug_state" class="label label-default">-</span></td></tr>
-                <tr><td>{{ lang._('Log size') }}</td><td id="ff_debug_size">-</td></tr>
-            </tbody>
-        </table>
-        <button class="btn btn-warning btn-xs" id="debugStartAct" type="button"><i class="fa fa-bug fa-fw"></i> {{ lang._('Start debug mode (12 hours)') }}</button>
-        <button class="btn btn-default btn-xs" id="debugStopAct" type="button" style="display:none"><i class="fa fa-stop fa-fw"></i> {{ lang._('Stop debug mode') }}</button>
-        <button class="btn btn-default btn-xs" id="debugDownloadAct" type="button"><i class="fa fa-download fa-fw"></i> {{ lang._('Download debug log') }}</button>
-        <button class="btn btn-default btn-xs" id="debugClearAct" type="button"><i class="fa fa-trash fa-fw"></i> {{ lang._('Delete debug log') }}</button>
-
-        <h2>{{ lang._('Switch history') }}</h2>
+        <h2 class="ff-toggle" data-target="#ff_sec_history" style="cursor:pointer; user-select:none;">
+            <i class="fa fa-fw fa-chevron-down"></i> {{ lang._('Switch history') }}
+        </h2>
+        <div id="ff_sec_history" class="ff-section">
         <table id="ff_events" class="table table-condensed table-striped">
             <thead>
                 <tr>
@@ -430,7 +451,11 @@ POSSIBILITY OF SUCH DAMAGE.
             </thead>
             <tbody></tbody>
         </table>
-        <h2>{{ lang._('Internet test addresses (statistics)') }}</h2>
+        </div>
+        <h2 class="ff-toggle" data-target="#ff_sec_stats" style="cursor:pointer; user-select:none;">
+            <i class="fa fa-fw fa-chevron-down"></i> {{ lang._('Internet test addresses (statistics)') }}
+        </h2>
+        <div id="ff_sec_stats" class="ff-section">
         <p>{{ lang._('Every lost ping per test address, measured through the cable line. If an address loses pings while the others answer, that address is unreliable as monitor target (e.g. the 9.9.9.9 timeouts). A failed check means no reply at all from this address in that check.') }}</p>
         <table id="ff_targets" class="table table-condensed table-striped">
             <thead>
@@ -448,6 +473,29 @@ POSSIBILITY OF SUCH DAMAGE.
         <button class="btn btn-default btn-xs" id="resetStatsAct" type="button">
             <i class="fa fa-eraser fa-fw"></i> {{ lang._('Reset statistics') }}
         </button>
+        </div>
+        <h2 class="ff-toggle" data-target="#ff_sec_debug" style="cursor:pointer; user-select:none;">
+            <i class="fa fa-fw fa-chevron-right"></i> {{ lang._('Debug mode') }} <span id="ff_debug_badge" class="label label-warning" style="display:none; font-size:60%; vertical-align:middle;"></span>
+        </h2>
+        <div id="ff_sec_debug" class="ff-section" style="display:none;">
+        <p>{{ lang._('Records one detailed line per check: plugin decision, raw FRITZ!Box values (connection status, last error, physical link), every test ping, how OPNsense sees both gateways and the default route of the firewall. Lines in which something relevant changed start with *. Use it e.g. while a technician works on the line, then download the log. Switches itself off after 12 hours. Daily self-healing deletes the log, except while debug mode is running.') }}</p>
+        <table class="table table-condensed">
+            <tbody>
+                <tr><td style="width:22%">{{ lang._('State') }}</td><td><span id="ff_debug_state" class="label label-default">-</span></td></tr>
+                <tr><td>{{ lang._('Log size') }}</td><td id="ff_debug_size">-</td></tr>
+                <tr><td>{{ lang._('Scheduled start') }}</td><td>
+                    <input type="datetime-local" id="ff_debug_at" class="form-control" style="display:inline-block; width:auto;"/>
+                    <button class="btn btn-default btn-xs" id="debugScheduleAct" type="button"><i class="fa fa-clock-o fa-fw"></i> {{ lang._('Schedule') }}</button>
+                    <button class="btn btn-default btn-xs" id="debugUnscheduleAct" type="button" style="display:none"><i class="fa fa-times fa-fw"></i> {{ lang._('Cancel schedule') }}</button>
+                    <span id="ff_debug_sched"></span>
+                </td></tr>
+            </tbody>
+        </table>
+        <button class="btn btn-warning btn-xs" id="debugStartAct" type="button"><i class="fa fa-bug fa-fw"></i> {{ lang._('Start debug mode (12 hours)') }}</button>
+        <button class="btn btn-default btn-xs" id="debugStopAct" type="button" style="display:none"><i class="fa fa-stop fa-fw"></i> {{ lang._('Stop debug mode') }}</button>
+        <button class="btn btn-default btn-xs" id="debugDownloadAct" type="button"><i class="fa fa-download fa-fw"></i> {{ lang._('Download debug log') }}</button>
+        <button class="btn btn-default btn-xs" id="debugClearAct" type="button"><i class="fa fa-trash fa-fw"></i> {{ lang._('Delete debug log') }}</button>
+        </div>
     </div>
 </div>
 
