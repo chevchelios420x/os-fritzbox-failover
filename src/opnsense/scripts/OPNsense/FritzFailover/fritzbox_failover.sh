@@ -76,6 +76,12 @@ HISTORY_FILE="${HISTORY_DIR}/history"
 HISTORY_KEEP=50
 # time of the last self-healing restart (kept across reboots)
 SELFHEAL_FILE="${HISTORY_DIR}/last_selfheal"
+# debug mode: one detailed line per check, switches itself off
+DEBUG_UNTIL_FILE="${HISTORY_DIR}/debug_until"
+DEBUG_LOG="${HISTORY_DIR}/debug.log"
+DEBUG_LAST="${RUNDIR}/fritzfailover.debug_last"
+DEBUG_HOURS=12
+DEBUG_MAX_BYTES=20971520
 # desired Cloudflare DNS target (normal|failover) until the update succeeded
 CF_PENDING_FILE="${RUNDIR}/fritzfailover.cf_pending"
 # Pushover messages not delivered yet:
@@ -111,6 +117,7 @@ MESSAGE=""
 RECORD_STATS=0
 FORCE_TR064=0
 TEST_LEFT=""
+LAST_STATUS=""
 
 log()
 {
@@ -215,6 +222,7 @@ save_counters()
 write_state()
 {
 	_status="$1"
+	LAST_STATUS="$1"
 	{
 		printf '{"status":"%s",' "$(json_escape "${_status}")"
 		printf '"gateway":"%s",' "$(json_escape "${FF_GATEWAY:-}")"
@@ -647,6 +655,14 @@ apply_monitor()
 
 run_check()
 {
+	run_check_inner
+	_rc=$?
+	debug_record
+	return ${_rc}
+}
+
+run_check_inner()
+{
 	MESSAGE=""
 	# leftovers of checks that were killed hard (normally removed right away)
 	find "${RUNDIR}" -maxdepth 1 -type d -name 'fritzfailover.??????' -mmin +10 -exec rm -rf {} + 2>/dev/null
@@ -974,6 +990,100 @@ do_state()
 # and closes the lock descriptor in the command it runs, so long-lived
 # processes started from there (dpinger via pluginctl, the test failover
 # timer) can never inherit and keep the lock.
+# Debug mode ---------------------------------------------------------------
+
+debug_active()
+{
+	_until=$(cat "${DEBUG_UNTIL_FILE}" 2>/dev/null)
+	is_uint "${_until}" || return 1
+	if [ "$(date +%s)" -ge "${_until}" ]; then
+		rm -f "${DEBUG_UNTIL_FILE}" "${DEBUG_LAST}"
+		printf '%s === debug mode ended automatically ===\n' "$(date '+%Y-%m-%d %H:%M:%S')" >> "${DEBUG_LOG}"
+		log "debug mode ended automatically"
+		return 1
+	fi
+	return 0
+}
+
+# all New* values of one UPnP action as "key=value key=value"
+upnp_values()
+{
+	soap_call "$1" "$2" 0 "$3" | tr -d '\r' | tr '<' '\n' |
+	    sed -n 's/^New\([A-Za-z0-9_]*\)>\(.*\)$/\1=\2/p' |
+	    grep -v '^ExternalIPAddress=' | tr '\n' ' ' | sed 's/ $//'
+}
+
+# One line per check with everything needed to analyse an outage. Lines in
+# which a relevant value changed against the previous check start with "*".
+debug_record()
+{
+	debug_active || return 0
+	[ -n "${FF_FRITZBOX_IP:-}" ] || return 0
+	_fb=$(upnp_values "${IGD_SERVICE}" "${IGD_URL_PATH}" GetStatusInfo)
+	_ln=$(upnp_values "${IGD_LINK_SERVICE}" "${IGD_LINK_PATH}" GetCommonLinkProperties)
+	_gw=$(${HELPER} gwdebug 2>/dev/null)
+	_rt=$(route -n get -inet default 2>/dev/null | awk '$1 == "gateway:" { g = $2 } $1 == "interface:" { i = $2 } END { print g " via " i }')
+	_key="${LAST_STATUS}|${GW_MONITOR:-}|$(printf '%s' "${_fb}" | sed 's/Uptime=[0-9]*//')|$(printf '%s' "${_ln}" | sed 's/MaxBitRate=[0-9]*//g')|$(printf '%s' "${_gw}" | sed 's/ loss=[^ ;]*//g; s/ delay=[^ ;]*//g')|$(printf '%s' "${PING_TEXT:-}" | sed 's/ (via.*//')|${_rt}"
+	_mark=" "
+	[ "${_key}" != "$(cat "${DEBUG_LAST}" 2>/dev/null)" ] && _mark="*"
+	printf '%s' "${_key}" > "${DEBUG_LAST}"
+	printf '%s %s status=%s fails=%s oks=%s monitor=%s | fritzbox: %s | link: %s | ping: %s | opnsense: %s | default route: %s | info: %s\n' \
+	    "${_mark}" "$(date '+%Y-%m-%d %H:%M:%S')" "${LAST_STATUS:-?}" "${FAILS:-?}" "${OKS:-?}" "${GW_MONITOR:-?}" \
+	    "${_fb:-no answer}" "${_ln:-no answer}" "${PING_TEXT:--}" "${_gw:-?}" "${_rt:-?}" "${MESSAGE:-}" >> "${DEBUG_LOG}"
+	# size limit: keep the newer half
+	_size=$(stat -f %z "${DEBUG_LOG}" 2>/dev/null || wc -c < "${DEBUG_LOG}")
+	if is_uint "${_size}" && [ "${_size}" -gt "${DEBUG_MAX_BYTES}" ]; then
+		tail -c $((DEBUG_MAX_BYTES / 2)) "${DEBUG_LOG}" > "${DEBUG_LOG}.tmp" && mv -f "${DEBUG_LOG}.tmp" "${DEBUG_LOG}"
+	fi
+	chmod 600 "${DEBUG_LOG}" 2>/dev/null
+}
+
+do_debug()
+{
+	mkdir -p "${HISTORY_DIR}" 2>/dev/null
+	case "$1" in
+	start)
+		_until=$(($(date +%s) + DEBUG_HOURS * 3600))
+		echo "${_until}" > "${DEBUG_UNTIL_FILE}"
+		rm -f "${DEBUG_LAST}"
+		_ver=$(sed -n 's/.*"product_version": *"\([^"]*\)".*/\1/p' /usr/local/opnsense/version/fritzbox-failover 2>/dev/null)
+		load_config >/dev/null 2>&1
+		{
+			printf '%s === debug mode started, ends %s (plugin %s, %s) ===\n' "$(date '+%Y-%m-%d %H:%M:%S')" \
+			    "$(date -r "${_until}" '+%Y-%m-%d %H:%M')" "${_ver:-?}" "$(/usr/local/sbin/opnsense-version 2>/dev/null)"
+			printf '    settings: mode=%s gateway=%s backup=%s fritzbox=%s targets=%s interval=%ss fail=%s recover=%s test_mode=%s\n' \
+			    "${FF_CHECK_MODE:-?}" "${FF_GATEWAY:-?}" "${FF_BACKUP_GATEWAY:--}" "${FF_FRITZBOX_IP:-?}" \
+			    "${FF_PROBE_TARGETS:-?}" "${FF_CHECK_INTERVAL:-?}" "${FF_FAIL_THRESHOLD:-?}" "${FF_RECOVER_THRESHOLD:-?}" "${FF_DRY_RUN:-?}"
+			printf '    legend: "*" = a relevant value changed since the previous check\n'
+		} >> "${DEBUG_LOG}"
+		chmod 600 "${DEBUG_LOG}"
+		log "debug mode started for ${DEBUG_HOURS} hours"
+		;;
+	stop)
+		if [ -f "${DEBUG_UNTIL_FILE}" ]; then
+			rm -f "${DEBUG_UNTIL_FILE}" "${DEBUG_LAST}"
+			printf '%s === debug mode stopped by the user ===\n' "$(date '+%Y-%m-%d %H:%M:%S')" >> "${DEBUG_LOG}"
+			log "debug mode stopped"
+		fi
+		;;
+	clear)
+		rm -f "${DEBUG_LOG}" "${DEBUG_LAST}"
+		;;
+	status)
+		_until=$(cat "${DEBUG_UNTIL_FILE}" 2>/dev/null)
+		is_uint "${_until}" || _until=0
+		[ "${_until}" -gt "$(date +%s)" ] || _until=0
+		_size=0
+		[ -f "${DEBUG_LOG}" ] && _size=$(stat -f %z "${DEBUG_LOG}" 2>/dev/null || wc -c < "${DEBUG_LOG}")
+		printf '{"active":%s,"until":%s,"size":%s}\n' "$([ "${_until}" -gt 0 ] && echo true || echo false)" "${_until}" "$(echo ${_size} | tr -dc 0-9)"
+		;;
+	log)
+		[ -f "${DEBUG_LOG}" ] && tail -c 10485760 "${DEBUG_LOG}"
+		;;
+	esac
+	return 0
+}
+
 # Decides whether the monitor process may restart itself now (self-healing):
 # enabled, in the configured hour (and on Sunday for weekly), at most once per
 # slot, and only while everything is fine and nothing is pending. Statistics
@@ -1020,6 +1130,11 @@ run)
 				date +%s > "${SELFHEAL_FILE}"
 				# flush runtime files, keep statistics and history
 				rm -f "${COUNTER_FILE}" "${BACKOFF_FILE}" "${STATE_FILE}"
+				# daily clean-up of the debug log, but never during a running
+				# debug session (it may span the self-healing hour)
+				if ! debug_active; then
+					rm -f "${DEBUG_LOG}" "${DEBUG_LAST}"
+				fi
 				find "${RUNDIR}" -maxdepth 1 -type d -name 'fritzfailover.??????' -exec rm -rf {} + 2>/dev/null
 				log "self-healing: restarting the monitor process (statistics and history are kept)"
 				# daemon(8) starts a fresh process
@@ -1051,6 +1166,9 @@ restore-locked)
 resetstats)
 	rm -f "${STATS_FILE}"
 	;;
+debug)
+	do_debug "${2:-status}"
+	;;
 testfailover)
 	locked testfailover-locked
 	;;
@@ -1073,7 +1191,7 @@ state)
 	do_state
 	;;
 *)
-	echo "usage: $0 run|check|test|state|stopped|restore|resetstats|testfailover" >&2
+	echo "usage: $0 run|check|test|state|stopped|restore|resetstats|testfailover|debug start|stop|clear|status|log" >&2
 	exit 2
 	;;
 esac

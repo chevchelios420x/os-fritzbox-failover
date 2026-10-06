@@ -269,6 +269,45 @@ POSSIBILITY OF SUCH DAMAGE.
             );
         });
 
+        function renderDebug(d) {
+            d = d || {};
+            const kb = Math.round((d.size || 0) / 1024);
+            if (d.active) {
+                $('#ff_debug_state').attr('class', 'label label-warning').text('{{ lang._("active until") }} ' + fmtTime(d.until));
+            } else {
+                $('#ff_debug_state').attr('class', 'label label-default').text('{{ lang._("off") }}');
+            }
+            $('#ff_debug_size').text(kb + ' KB');
+            $('#debugStartAct').toggle(!d.active);
+            $('#debugStopAct').toggle(!!d.active);
+        }
+        function debugCall(what) {
+            ajaxCall('/api/fritzfailover/service/debug/' + what, {}, renderDebug);
+        }
+        $('#debugStartAct').click(function () { debugCall('start'); });
+        $('#debugStopAct').click(function () { debugCall('stop'); });
+        $('#debugClearAct').click(function () {
+            stdDialogConfirm('{{ lang._("Debug log") }}', '{{ lang._("Delete the recorded debug log?") }}',
+                '{{ lang._("Delete") }}', '{{ lang._("Cancel") }}', function () { debugCall('clear'); }, 'warning');
+        });
+        $('#debugDownloadAct').click(function () {
+            ajaxGet('/api/fritzfailover/service/debuglog', {}, function (data) {
+                const blob = new Blob([(data && data.log) || ''], {type: 'text/plain'});
+                const a = document.createElement('a');
+                const d = new Date();
+                const p = function (n) { return ('0' + n).slice(-2); };
+                a.href = URL.createObjectURL(blob);
+                a.download = 'fritzfailover-debug-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + '.log';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(a.href);
+            });
+        });
+        function refreshDebug() { ajaxGet('/api/fritzfailover/service/debug/status', {}, renderDebug); }
+        refreshDebug();
+        setInterval(refreshDebug, 30000);
+
         $('#resetStatsAct').click(function () {
             ajaxCall('/api/fritzfailover/service/resetstats', {}, function () {
                 updateState();
@@ -367,6 +406,19 @@ POSSIBILITY OF SUCH DAMAGE.
         <button class="btn btn-default btn-xs" id="restoreAct" type="button">
             <i class="fa fa-undo fa-fw"></i> {{ lang._('Restore normal monitor IP') }}
         </button>
+        <h2>{{ lang._('Debug mode') }}</h2>
+        <p>{{ lang._('Records one detailed line per check: plugin decision, raw FRITZ!Box values (connection status, last error, physical link), every test ping, how OPNsense sees both gateways and the default route of the firewall. Lines in which something relevant changed start with *. Use it e.g. while a technician works on the line, then download the log. Switches itself off after 12 hours. Daily self-healing deletes the log, except while debug mode is running.') }}</p>
+        <table class="table table-condensed">
+            <tbody>
+                <tr><td style="width:22%">{{ lang._('State') }}</td><td><span id="ff_debug_state" class="label label-default">-</span></td></tr>
+                <tr><td>{{ lang._('Log size') }}</td><td id="ff_debug_size">-</td></tr>
+            </tbody>
+        </table>
+        <button class="btn btn-warning btn-xs" id="debugStartAct" type="button"><i class="fa fa-bug fa-fw"></i> {{ lang._('Start debug mode (12 hours)') }}</button>
+        <button class="btn btn-default btn-xs" id="debugStopAct" type="button" style="display:none"><i class="fa fa-stop fa-fw"></i> {{ lang._('Stop debug mode') }}</button>
+        <button class="btn btn-default btn-xs" id="debugDownloadAct" type="button"><i class="fa fa-download fa-fw"></i> {{ lang._('Download debug log') }}</button>
+        <button class="btn btn-default btn-xs" id="debugClearAct" type="button"><i class="fa fa-trash fa-fw"></i> {{ lang._('Delete debug log') }}</button>
+
         <h2>{{ lang._('Switch history') }}</h2>
         <table id="ff_events" class="table table-condensed table-striped">
             <thead>

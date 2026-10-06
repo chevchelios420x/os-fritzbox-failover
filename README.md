@@ -170,6 +170,17 @@ Prozesse: ein dauerhafter Überwachungsprozess (von `daemon(8)` bei einem Abstur
 
 Abhilfe in allen Fällen: Dienst unter **System → Diagnose → Dienste** neu starten (ein aktiver Failover bleibt dabei erhalten).
 
+### Debug-Modus
+
+Für die Analyse eines Ausfalls (z. B. wenn ein Techniker an der Leitung arbeitet): Auf der Statusseite **„Start debug mode (12 hours)“** drücken. Ab dann wird bei jeder Prüfung eine Zeile geschrieben mit
+- Entscheidung des Plugins, Zählern und aktiver Monitor-IP,
+- Rohwerten der FRITZ!Box (Verbindungsstatus, letzter Verbindungsfehler, Uptime, physischer Leitungsstatus, Anschlussart),
+- Ergebnis jedes Test-Pings,
+- Sicht von OPNsense auf Kabel- und Backup-Gateway (Status, Verlust, Latenz, Monitor-IP),
+- Standardroute der Firewall.
+
+Zeilen, in denen sich etwas Relevantes geändert hat, beginnen mit `*`. Der Modus endet nach spätestens 12 Stunden von selbst. Mit **„Download debug log“** lädst du die Datei herunter (`/var/db/fritzfailover/debug.log`, max. 20 MB). Die tägliche Selbstheilung löscht das Log, aber nie während einer laufenden Aufzeichnung. Die öffentliche IP wird nicht protokolliert.
+
 ### Selbstheilung
 
 Unter **Self-healing** (standardmäßig an, täglich 04:00 Uhr) startet das Plugin seinen eigenen Überwachungsprozess regelmäßig neu und leert seine Laufzeitdateien (Zähler, Temp-Dateien). Statistik und Umschalt-Verlauf bleiben erhalten. OPNsense, Routing, Firewall und dpinger werden dabei nicht angefasst. Der Neustart passiert nur, wenn alles in Ordnung ist (Status „Cable line OK“); während eines Failovers, eines Test-Failovers, beim Mitzählen von Fehlern oder solange eine Benachrichtigung/DNS-Umstellung aussteht, wird er auf das nächste Zeitfenster verschoben. Wählbar: täglich oder wöchentlich (Sonntag) und die Stunde.

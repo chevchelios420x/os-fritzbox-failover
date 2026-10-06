@@ -120,6 +120,32 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
+     * debug mode: start (12 hours), stop, clear (POST)
+     * @param string $what start|stop|clear
+     * @return array
+     */
+    public function debugAction($what = 'status')
+    {
+        if (in_array($what, ['start', 'stop', 'clear'])) {
+            if (!$this->request->isPost()) {
+                return ['status' => 'failed', 'message' => 'POST required'];
+            }
+            (new Backend())->configdRun('fritzfailover debug ' . $what);
+        }
+        $status = json_decode(trim((new Backend())->configdRun('fritzfailover debug status')), true);
+        return is_array($status) ? $status : ['active' => false, 'until' => 0, 'size' => 0];
+    }
+
+    /**
+     * debug log content for download
+     * @return array
+     */
+    public function debuglogAction()
+    {
+        return ['log' => (string)(new Backend())->configdRun('fritzfailover debug log')];
+    }
+
+    /**
      * list IPv4 gateways for the gateway dropdown
      * @return array
      */

@@ -284,6 +284,14 @@ Pro Prüfung (Standard alle 10 s) 2–3 kurze PHP-Aufrufe, eine UPnP-/TR-064-Anf
 - Nur bei Status „ok“, ohne laufenden Test-Failover und ohne ausstehende Push-/DNS-Aufträge; höchstens einmal pro Zeitfenster (Sperre 20 Stunden).
 - Mit nachgebauten Programmen getestet: Neustart bei „ok“ in der eingestellten Stunde, kein zweiter Neustart im selben Fenster, kein Neustart während eines Failovers.
 
+### Debug-Modus (ab 1.16)
+
+- Start per Button, Ende nach spätestens 12 Stunden (Zeitstempel in `/var/db/fritzfailover/debug_until`, geprüft bei jeder Prüfung). Keine Änderung an der Konfiguration.
+- Eine Zeile pro Prüfung (ca. 600–800 Byte), also ca. 3–4 MB in 12 Stunden bei 10 s Intervall; harte Grenze 20 MB (danach wird die ältere Hälfte verworfen).
+- Zusätzliche Last nur während der Aufzeichnung: zwei UPnP-Abfragen, ein Aufruf von `gateway_status.php` und `route get` je Prüfung.
+- Datei nur für root lesbar (0600); öffentliche IP wird nicht protokolliert.
+- Die Selbstheilung löscht das Log täglich, aber nicht während einer laufenden Aufzeichnung; beim Deinstallieren wird es mit `/var/db/fritzfailover` entfernt.
+
 ### Restrisiken
 
 - Was sich nur im Dauerbetrieb zeigt (z. B. Verhalten der FRITZ!Box bei Abfragen alle 10 s über Monate oder Speicherverhalten von PHP/OPNsense selbst), lässt sich nicht im Voraus testen. Die Warnung bei ausbleibenden Prüfungen macht ein Hängen sichtbar.

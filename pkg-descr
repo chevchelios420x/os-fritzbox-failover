@@ -12,6 +12,13 @@ is healthy again the normal monitor IP is restored.
 Plugin Changelog
 ================
 
+1.16
+
+* Debug mode (max. 12 hours): one detailed line per check with raw
+  FRITZ!Box values, pings, OPNsense gateway states and default route;
+  changes are marked, log can be downloaded
+* Daily self-healing also deletes the debug log (not during a session)
+
 1.15
 
 * FRITZ!Box physical link status (UPnP GetCommonLinkProperties) as an

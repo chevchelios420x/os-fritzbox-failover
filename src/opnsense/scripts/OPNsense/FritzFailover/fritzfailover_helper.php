@@ -241,6 +241,7 @@ switch ($cmd) {
         emit('FF_TR064_PORT', (int)(string)$mdl->tr064_port);
         emit('FF_TR064_HAS_AUTH', ((string)$mdl->tr064_username !== '' && (string)$mdl->tr064_password !== '') ? '1' : '0');
         emit('FF_GATEWAY', (string)$mdl->gateway);
+        emit('FF_BACKUP_GATEWAY', (string)$mdl->backup_gateway);
         emit('FF_GOOD_MONITOR', (string)$mdl->good_monitor);
         emit('FF_BAD_MONITOR', (string)$mdl->bad_monitor);
         $targets = array_filter(explode(',', (string)$mdl->probe_targets), 'is_ipv4');
@@ -303,6 +304,32 @@ switch ($cmd) {
             ];
         }
         echo json_encode($list) . "\n";
+        break;
+
+    case 'gwdebug':
+        /* OPNsense's view of both gateways for the debug log */
+        $items = [];
+        foreach (json_decode((string)shell_exec('/usr/local/opnsense/scripts/routes/gateway_status.php 2>/dev/null'), true) ?: [] as $gw) {
+            if (!empty($gw['name'])) {
+                $items[$gw['name']] = $gw;
+            }
+        }
+        $out = [];
+        foreach ([(string)$mdl->gateway, (string)$mdl->backup_gateway] as $name) {
+            if ($name === '') {
+                continue;
+            }
+            $gw = $items[$name] ?? null;
+            $out[] = $gw === null ? "{$name}=unknown" : sprintf(
+                '%s=%s loss=%s delay=%s monitor=%s',
+                $name,
+                ($gw['status'] ?? '') === '' ? 'pending' : $gw['status'],
+                $gw['loss'] ?? '~',
+                $gw['delay'] ?? '~',
+                $gw['monitor'] ?? '~'
+            );
+        }
+        echo implode('; ', $out) . "\n";
         break;
 
     case 'gwstatus':
