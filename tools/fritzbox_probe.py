@@ -116,7 +116,8 @@ def probe_interface(base, desc, label, opener, call_actions):
         print("  not available: %s" % err)
         return
     for stype, control, scpd in services:
-        if not WAN_PATTERN.search(stype):
+        # match only the service name, not the namespace (urn:dslforum-org:...)
+        if not WAN_PATTERN.search(stype.split(":service:")[-1]):
             continue
         print("\n  service %s" % stype)
         print("    control %s" % control)

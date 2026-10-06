@@ -188,6 +188,17 @@ Das Plugin ändert nichts an LAN, Firewall-Regeln, Web-GUI oder SSH. Die OPNsens
 
 ---
 
+## Geprüfte FRITZ!Boxen
+
+| Modell | FRITZ!OS | Anschluss | Status per UPnP (ohne Passwort) |
+|---|---|---|---|
+| FRITZ!Box 6660 Cable | 8.25 | Kabel (Vodafone) | `WANIPConnection:1` → `Connected` ✔ |
+| FRITZ!Box 7590 | 8.25 | Ethernet/ATA (externer Zugang) | `WANIPConnection:1` → `Connected` ✔ |
+| FRITZ!Box 6850 5G | – | 5G/LTE | Dienst `WANIPConnection:1` vorhanden, Werte noch nicht geprüft |
+| FRITZ!Box mit DSL und PPPoE-Einwahl | – | DSL | noch nicht geprüft (Status vermutlich über `WANPPPConnection:1`) |
+
+Ausgaben weiterer Modelle mit dem Diagnose-Skript sind willkommen.
+
 ## FRITZ!Box-Diagnose
 
 `tools/fritzbox_probe.py` fragt eine oder mehrere FRITZ!Boxen nur lesend ab: welche WAN-Dienste sie anbietet und was alle Abfragen ohne Parameter liefern (z. B. `NewConnectionStatus`). IP- und MAC-Adressen werden maskiert, die Ausgabe kann geteilt werden. Auf der OPNsense (funktioniert auch in der Standard-Shell `csh`):
