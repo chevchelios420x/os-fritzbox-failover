@@ -10,11 +10,12 @@
 
 ## Zurückgestellt (vorerst nicht verfolgen)
 
-Grundsatz: Das Plugin nutzt nur Werte, die auf allen bestätigten FRITZ!Boxen (6660 Cable, 6850 5G, 7590) ohne Passwort verfügbar sind.
+Grundsatz: Das Plugin nutzt nur Werte, die auf allen bestätigten FRITZ!Boxen (6660 Cable, 6850 5G, 7590 ATA und 7590 DSL/PPPoE) ohne Passwort verfügbar sind.
 
 - DOCSIS-Pegel (oben) – nur bei Kabel-Boxen und nur mit Login über die Weboberfläche.
-- DSL mit PPPoE-Einwahl über `WANPPPConnection:1` – bisher keine Box zum Bestätigen.
 
 ## Erledigt
+
+- DSL mit PPPoE-Einwahl: nicht nötig. Eine 7590 (FRITZ!OS 8.21, `NewLinkType=PPPoE`) liefert den Status per UPnP ebenfalls über `WANIPConnection:1`, `WANPPPConnection` wird nicht gebraucht.
 
 - Physischer Leitungsstatus (`GetCommonLinkProperties` → `NewPhysicalLinkStatus`) als zusätzliches Signal, seit 1.15.
