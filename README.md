@@ -194,7 +194,7 @@ Das Plugin ändert nichts an LAN, Firewall-Regeln, Web-GUI oder SSH. Die OPNsens
 |---|---|---|---|
 | FRITZ!Box 6660 Cable | 8.25 | Kabel (Vodafone) | `WANIPConnection:1` → `Connected` ✔ |
 | FRITZ!Box 7590 | 8.25 | Ethernet/ATA (externer Zugang) | `WANIPConnection:1` → `Connected` ✔ |
-| FRITZ!Box 6850 5G | – | 5G/LTE | Dienst `WANIPConnection:1` vorhanden, Werte noch nicht geprüft |
+| FRITZ!Box 6850 5G | 8.25 | 5G/LTE (Carrier-NAT) | `WANIPConnection:1` → `Connected` ✔ |
 | FRITZ!Box mit DSL und PPPoE-Einwahl | – | DSL | noch nicht geprüft (Status vermutlich über `WANPPPConnection:1`) |
 
 Ausgaben weiterer Modelle mit dem Diagnose-Skript sind willkommen.
