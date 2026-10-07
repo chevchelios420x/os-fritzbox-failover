@@ -314,6 +314,11 @@ Pro Prüfung (Standard alle 10 s) 2–3 kurze PHP-Aufrufe, eine UPnP-/TR-064-Anf
 - Die IP-Abfrage über die eigene Routing-Tabelle der Leitung (`setfib`) konnte den lokalen DNS-Resolver (127.0.0.1) nicht erreichen: Neue FIBs enthalten keine Loopback- und Schnittstellenrouten (`net.add_addr_allfibs=0`), nur die vom Plugin gesetzten Routen.
 - Behebung: Der Name wird vorher in der Haupttabelle aufgelöst und curl per `--resolve` übergeben. Klappt die Abfrage über die Leitungstabelle trotzdem nicht, wird über das normale Routing abgefragt (zu diesem Zeitpunkt hat OPNsense bereits umgeschaltet).
 
+### Verzögerte Push-Nachricht beim Zurückschalten (1.22)
+
+- Die Rückschalt-Nachricht wartete, bis dpinger das Kabel-Gateway als vollständig „online“ meldete. Nach 100 % Verlust im (Test-)Failover braucht der gleitende Durchschnitt von Verlust und Latenz einige Minuten, bis der Alarm „loss“/„delay“ verschwindet; nach 5 Minuten ging die Nachricht mit Hinweis trotzdem raus. Beobachtet: 5 und 9 Minuten.
+- Jetzt gilt zusätzlich: Sobald die Standardroute der Firewall wieder über die erwartete Schnittstelle läuft (OPNsense hat umgeschaltet), wird gesendet.
+
 ### Restrisiken
 
 - Was sich nur im Dauerbetrieb zeigt (z. B. Verhalten der FRITZ!Box bei Abfragen alle 10 s über Monate oder Speicherverhalten von PHP/OPNsense selbst), lässt sich nicht im Voraus testen. Die Warnung bei ausbleibenden Prüfungen macht ein Hängen sichtbar.

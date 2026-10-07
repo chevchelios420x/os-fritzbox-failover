@@ -634,6 +634,7 @@ push_sync()
 	fi
 	_now=$(date +%s)
 	_slept=""
+	unset _rtif
 	_cable=$(${HELPER} gwstatus 2>/dev/null | awk '{ print $1 }')
 	_keep="${PUSH_QUEUE_FILE}.tmp"
 	: > "${_keep}"
@@ -648,6 +649,16 @@ push_sync()
 		failover:*) _ready=1 ;;
 		failback:none) _ready=1 ;;
 		esac
+		# OPNsense already routes via the expected line (its default route
+		# follows the gateway state), even if dpinger still reports loss/delay
+		if [ "${_ready}" != "1" ]; then
+			[ -n "${_rtif+x}" ] || _rtif=$(route -n get -inet default 2>/dev/null | awk '$1 == "interface:" { print $2 }')
+			if [ "${_kind}" = "failback" ] && [ -n "${_rtif}" ] && [ "${_rtif}" = "${GW_DEVICE:-}" ]; then
+				_ready=1
+			elif [ "${_kind}" = "failover" ] && [ -n "${_rtif}" ] && [ -n "${BK_DEVICE:-}" ] && [ "${_rtif}" = "${BK_DEVICE}" ]; then
+				_ready=1
+			fi
+		fi
 		_note=""
 		if [ "${_ready}" != "1" ]; then
 			if [ "${_age}" -lt 300 ]; then

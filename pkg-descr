@@ -12,6 +12,13 @@ is healthy again the normal monitor IP is restored.
 Plugin Changelog
 ================
 
+1.22
+
+* Notifications after switching back no longer wait until dpinger
+  reports the cable gateway as fully online (loss/delay alarms can take
+  minutes to clear); they are sent as soon as OPNsense routes via the
+  expected line again.
+
 1.21
 
 * Fix: the public IP in notifications could be "unknown". The lookup
