@@ -46,3 +46,63 @@ function fritzfailover_services()
 
     return $services;
 }
+
+/*
+ * Test pings to the probe targets must always leave through the monitored
+ * (cable) line. A policy rule with a gateway group (route-to) would otherwise
+ * send them out through the backup line during a failover, so the cable
+ * line would never be seen as healthy again. One quick outbound pass rule per
+ * probe target, sourced from the cable interface address, routed to the cable
+ * gateway. Nothing else is matched.
+ */
+function fritzfailover_firewall($fw)
+{
+    global $config;
+
+    $mdl = new \OPNsense\FritzFailover\FritzFailover();
+    if ((string)$mdl->enabled != '1' || (string)$mdl->fw_rules != '1') {
+        return;
+    }
+    $gwname = (string)$mdl->gateway;
+    if ($gwname === '') {
+        return;
+    }
+    $gw = null;
+    foreach ((new \OPNsense\Routing\Gateways())->getGateways() as $item) {
+        if (($item['name'] ?? '') === $gwname) {
+            $gw = $item;
+            break;
+        }
+    }
+    if ($gw === null || empty($gw['interface']) || ($gw['ipprotocol'] ?? 'inet') != 'inet') {
+        return;
+    }
+    $ifname = (string)$mdl->interface !== '' ? (string)$mdl->interface : $gw['interface'];
+    if (!preg_match('/^(wan|lan|opt[0-9]+)$/', $ifname)) {
+        return;
+    }
+    foreach (explode(',', (string)$mdl->probe_targets) as $target) {
+        $target = trim($target);
+        if (filter_var($target, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false) {
+            continue;
+        }
+        $fw->registerFilterRule(
+            1,
+            [
+                'ipprotocol'     => 'inet',
+                'protocol'       => 'icmp',
+                'statetype'      => 'keep',
+                'type'           => 'pass',
+                'disablereplyto' => 1,
+                'quick'          => true,
+                'direction'      => 'out',
+                'from'           => $ifname . 'ip',
+                'to'             => $target,
+                'gateway'        => $gwname,
+                'descr'          => 'FRITZ!Box failover: test ping via ' . $gwname,
+                'log'            => false,
+                '#ref'           => 'ui/fritzfailover',
+            ]
+        );
+    }
+}

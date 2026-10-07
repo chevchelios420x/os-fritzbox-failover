@@ -1,0 +1,7 @@
+#!/bin/sh
+
+# The plugin's firewall hook is gone now: reload the filter so its rules for
+# the test pings disappear as well.
+if [ -x /usr/local/sbin/configctl ]; then
+	/usr/local/sbin/configctl filter reload skip_alias >/dev/null 2>&1 || :
+fi

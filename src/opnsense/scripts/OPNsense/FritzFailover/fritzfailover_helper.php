@@ -262,6 +262,7 @@ switch ($cmd) {
         emit('FF_PO_ENABLED', (string)$mdl->po_enabled);
         emit('FF_PO_FAILBACK', (string)$mdl->po_failback);
         emit('FF_PO_DELAY', (int)(string)$mdl->po_delay);
+        emit('FF_FW_RULES', (string)$mdl->fw_rules);
         emit('FF_SELFHEAL', (string)$mdl->selfheal_enabled);
         emit('FF_SELFHEAL_INTERVAL', (string)$mdl->selfheal_interval);
         emit('FF_SELFHEAL_HOUR', (int)(string)$mdl->selfheal_hour);

@@ -299,6 +299,14 @@ Pro Prüfung (Standard alle 10 s) 2–3 kurze PHP-Aufrufe, eine UPnP-/TR-064-Anf
 - Lässt sich die Kabel-Tabelle nicht einrichten (z. B. Gateway-Adresse unbekannt), gilt das Ping-Ergebnis als unbrauchbar und es wird nicht anhand der Pings entschieden.
 - Mit nachgebauten Programmen getestet (Ping ohne eigene Tabelle „leckt“ über das Backup): Das Plugin bleibt im Failover, bis das Kabel selbst antwortet. Auf echter Hardware noch zu bestätigen.
 
+### Test-Pings und Policy-Routing (1.19)
+
+- **Befund aus dem Praxistest mit 1.18:** Nach Erholung der Kabelleitung blieben die Test-Pings erfolglos, bis die Monitor-IP von Hand zurückgesetzt wurde. Die eigene Routing-Tabelle wirkt nur auf die Routenwahl; eine pf-Regel mit `route-to` (Gateway-Gruppe/Policy-Routing) wird danach ausgewertet und kann die Pakete trotzdem auf das Backup umleiten, solange das Kabel-Gateway als „down“ gilt. Folge: Das Plugin konnte die Erholung nicht erkennen.
+- **Behebung:** Das Plugin registriert über den OPNsense-Firewall-Hook (`fritzfailover_firewall`, Priorität 1, also vor allen Benutzerregeln) pro Testadresse eine `quick`-Regel `pass out route-to (<Kabel-Schnittstelle> <Kabel-Gateway>) proto icmp from (<Kabel-Schnittstelle>) to <Testadresse>`. Laut Core-Quellcode (`Plugin::setGateways` nutzt auch ausgefallene Gateways) entsteht die Regel auch dann, wenn das Kabel-Gateway „down“ ist. Abschaltbar in den Einstellungen (Standard an).
+- **Kontrolle:** Bei jeder Prüfung wird `pfctl -sr` auf die Regeln je Testadresse geprüft; Ergebnis in Status, Test-Dialog und Debug-Log. Fehlende Regeln lösen `configctl filter reload skip_alias` aus, höchstens alle 15 Minuten. „Apply“ lädt die Firewall ebenfalls neu.
+- **Verbose-Debug:** schreibt `route-to`/`reply-to`-Regeln und Routen der FIBs bei Änderung sowie die pf-States der Test-Pings je Prüfung.
+- Noch auf echter Hardware zu bestätigen (Test-Failover, danach Kabel wieder hochkommen lassen).
+
 ### Restrisiken
 
 - Was sich nur im Dauerbetrieb zeigt (z. B. Verhalten der FRITZ!Box bei Abfragen alle 10 s über Monate oder Speicherverhalten von PHP/OPNsense selbst), lässt sich nicht im Voraus testen. Die Warnung bei ausbleibenden Prüfungen macht ein Hängen sichtbar.

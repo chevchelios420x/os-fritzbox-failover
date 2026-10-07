@@ -43,6 +43,14 @@ class ServiceController extends ApiMutableServiceControllerBase
     protected static $internalServiceName = 'fritzfailover';
 
     /**
+     * Apply also reloads the filter, so the test ping rules follow the settings
+     */
+    protected function invokeFirewallReload()
+    {
+        return true;
+    }
+
+    /**
      * current failover state as written by the backend monitor
      * @return array
      */
@@ -120,9 +128,9 @@ class ServiceController extends ApiMutableServiceControllerBase
     }
 
     /**
-     * debug mode: start (12 hours), stop, clear, schedule <unix time>, unschedule (POST)
+     * debug mode: start (12 hours), stop, clear, schedule <unix time>, unschedule, verbose on|off (POST)
      * @param string $what start|stop|clear|schedule|unschedule
-     * @param string $at unix time for schedule
+     * @param string $at unix time for schedule, on|off for verbose
      * @return array
      */
     public function debugAction($what = 'status', $at = '')
@@ -137,6 +145,11 @@ class ServiceController extends ApiMutableServiceControllerBase
                 return ['status' => 'failed', 'message' => 'POST with a timestamp required'];
             }
             (new Backend())->configdpRun('fritzfailover debug schedule', [(string)$at]);
+        } elseif ($what === 'verbose') {
+            if (!$this->request->isPost() || !in_array($at, ['on', 'off'])) {
+                return ['status' => 'failed', 'message' => 'POST with on|off required'];
+            }
+            (new Backend())->configdpRun('fritzfailover debug verbose', [$at]);
         }
         $status = json_decode(trim((new Backend())->configdRun('fritzfailover debug status')), true);
         return is_array($status) ? $status : ['active' => false, 'until' => 0, 'size' => 0];

@@ -114,6 +114,8 @@ POSSIBILITY OF SUCH DAMAGE.
                 $('#ff_state').attr('class', 'label ' + stateLabels[state][0]).text(stateLabels[state][1]);
                 $('#ff_tr064').text(data.tr064 || '-');
                 $('#ff_ping').text(data.ping || '-');
+                $('#ff_fwrules').text(data.fwrules || '-')
+                    .css('color', (data.fwrules || '').indexOf('missing') === 0 ? '#c9302c' : '');
                 $('#ff_monitor').text(data.monitor || '-');
                 $('#ff_counters').text((data.failures !== undefined ? data.failures : '-') + ' / ' + (data.successes !== undefined ? data.successes : '-'));
                 $('#ff_last').text(data.last_check || '-');
@@ -278,6 +280,7 @@ POSSIBILITY OF SUCH DAMAGE.
                 $('#ff_debug_state').attr('class', 'label label-default').text('{{ lang._("off") }}');
             }
             $('#ff_debug_size').text(kb + ' KB');
+            $('#ff_debug_verbose').prop('checked', !!d.verbose);
             $('#debugStartAct').toggle(!d.active);
             $('#debugStopAct').toggle(!!d.active);
             if (d.scheduled) {
@@ -299,6 +302,9 @@ POSSIBILITY OF SUCH DAMAGE.
             ajaxCall('/api/fritzfailover/service/debug/' + what, {}, renderDebug);
         }
         $('#debugStartAct').click(function () { debugCall('start'); });
+        $('#ff_debug_verbose').change(function () {
+            ajaxCall('/api/fritzfailover/service/debug/verbose/' + ($(this).is(':checked') ? 'on' : 'off'), {}, renderDebug);
+        });
         $('#debugStopAct').click(function () { debugCall('stop'); });
         $('#debugClearAct').click(function () {
             stdDialogConfirm('{{ lang._("Debug log") }}', '{{ lang._("Delete the recorded debug log?") }}',
@@ -379,6 +385,7 @@ POSSIBILITY OF SUCH DAMAGE.
                         message: $('<pre/>').text(
                             '{{ lang._("FRITZ!Box (TR-064)") }}: ' + (data.tr064 || '-') + '\n' +
                             '{{ lang._("Test ping via cable") }}: ' + (data.ping || '-') + '\n' +
+                            '{{ lang._("Firewall rules for test pings") }}: ' + (data.fwrules || '-') + '\n' +
                             '{{ lang._("Gateway") }}: ' + (data.gateway || '-') + '\n' +
                             '{{ lang._("Interface") }}: ' + (data.device || '-') + '\n' +
                             '{{ lang._("Current monitor IP") }}: ' + (data.monitor || '-') + '\n\n' +
@@ -415,6 +422,7 @@ POSSIBILITY OF SUCH DAMAGE.
                 <tr><td style="width:22%">{{ lang._('State') }}</td><td><span id="ff_state" class="label label-default">-</span></td></tr>
                 <tr><td>{{ lang._('FRITZ!Box line status') }}</td><td id="ff_tr064">-</td></tr>
                 <tr><td>{{ lang._('Test ping via cable') }}</td><td id="ff_ping">-</td></tr>
+                <tr><td>{{ lang._('Firewall rules for test pings') }}</td><td id="ff_fwrules">-</td></tr>
                 <tr><td>{{ lang._('Active monitor IP') }}</td><td id="ff_monitor">-</td></tr>
                 <tr><td>{{ lang._('Failures / successes in a row') }}</td><td id="ff_counters">-</td></tr>
                 <tr><td>{{ lang._('Last check') }}</td><td id="ff_last">-</td></tr>
@@ -483,6 +491,10 @@ POSSIBILITY OF SUCH DAMAGE.
             <tbody>
                 <tr><td style="width:22%">{{ lang._('State') }}</td><td><span id="ff_debug_state" class="label label-default">-</span></td></tr>
                 <tr><td>{{ lang._('Log size') }}</td><td id="ff_debug_size">-</td></tr>
+                <tr><td>{{ lang._('Verbose') }}</td><td>
+                    <label style="font-weight:normal;"><input type="checkbox" id="ff_debug_verbose"/>
+                    {{ lang._('also log firewall rules with route-to/reply-to and the routing tables (when they change) and the firewall states of the test pings (every check)') }}</label>
+                </td></tr>
                 <tr><td>{{ lang._('Scheduled start') }}</td><td>
                     <input type="datetime-local" id="ff_debug_at" class="form-control" style="display:inline-block; width:auto;"/>
                     <button class="btn btn-default btn-xs" id="debugScheduleAct" type="button"><i class="fa fa-clock-o fa-fw"></i> {{ lang._('Schedule') }}</button>

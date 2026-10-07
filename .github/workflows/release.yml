@@ -90,6 +90,7 @@ jobs:
             cp "$PKGFILE" "$WS/dist/os-fritzbox-failover.pkg"
             pkg info -F "$WS/dist/os-fritzbox-failover.pkg"
             tar -xOf "$WS/dist/os-fritzbox-failover.pkg" +MANIFEST | grep -q 'pre-deinstall'
+            tar -xOf "$WS/dist/os-fritzbox-failover.pkg" +MANIFEST | grep -q 'post-deinstall'
             ls -l "$WS/dist"
 
       - name: Verify package

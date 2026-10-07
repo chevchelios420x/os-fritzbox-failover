@@ -130,6 +130,12 @@
         <help>Number of successful checks in a row before switching back to cable. Prevents flapping while the line is unstable. Default: 3.</help>
     </field>
     <field>
+        <id>fritzfailover.fw_rules</id>
+        <label>Firewall rules for test pings</label>
+        <type>checkbox</type>
+        <help>Adds one automatic outbound firewall rule per test address (Firewall - Rules - Floating, shown as automatic) that always sends the plugin's test pings out through the monitored gateway. Without it, a policy rule with a gateway group can send the test pings out through the backup line during a failover, and the cable line would then never be seen as healthy again. Only ICMP from the cable interface address to the test addresses is matched; other traffic is not affected. The rules are checked on every check and in "Test now". Recommended: on.</help>
+    </field>
+    <field>
         <type>header</type>
         <label>Self-healing</label>
         <collapse>true</collapse>

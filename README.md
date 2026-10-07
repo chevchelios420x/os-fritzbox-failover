@@ -180,6 +180,18 @@ Für die Analyse eines Ausfalls (z. B. wenn ein Techniker an der Leitung arbeite
 
 Zeilen, in denen sich etwas Relevantes geändert hat, beginnen mit `*`. Der Modus endet nach spätestens 12 Stunden von selbst. Er lässt sich auch **planen**: Datum und Uhrzeit wählen, „Schedule“ drücken; ab dann läuft er 12 Stunden (der Dienst muss dafür laufen). Mit **„Download debug log“** lädst du die Datei herunter (`/var/db/fritzfailover/debug.log`, max. 20 MB). Die tägliche Selbstheilung löscht das Log, aber nie während einer laufenden Aufzeichnung. Die öffentliche IP wird nicht protokolliert.
 
+Mit dem Schalter **Verbose** schreibt der Debug-Modus zusätzlich
+- alle geladenen Firewall-Regeln mit `route-to`/`reply-to` (Gateway-Gruppen, Policy-Routing),
+- die Standard- und statischen Routen der Haupt-Routing-Tabelle und der beiden Plugin-Tabellen (FIBs),
+
+jeweils nur wenn sich daran etwas geändert hat (Block mit `* … verbose: firewall/routing changed`), sowie bei jeder Prüfung die Firewall-States der Test-Pings (über welche Schnittstelle/welches Gateway sie gerade laufen). Damit sieht man direkt, ob eine Regel die Test-Pings umleitet.
+
+### Firewall-Regeln für die Test-Pings
+
+Unter **Firewall rules for test pings** (Standard: an) legt das Plugin pro Testadresse eine automatische Floating-Regel an (sichtbar unter *Firewall → Regeln → Floating* als automatisch erzeugt):
+`pass out quick route-to (<Kabel-Schnittstelle> <Kabel-Gateway>) inet proto icmp from (<Kabel-Schnittstelle>) to <Testadresse>`.
+Sie sorgt dafür, dass die Test-Pings des Plugins auch dann über das Kabel gehen, wenn eine eigene Regel mit Gateway-Gruppe (`route-to`) sie sonst während des Failovers auf das Backup schicken würde. Sie passt nur auf ICMP von der Kabel-Adresse der Firewall zu den Testadressen; anderer Verkehr ist nicht betroffen. „Apply“ lädt die Firewall-Regeln neu. Das Plugin prüft bei jeder Prüfung, ob die Regeln geladen sind (Statuszeile *Firewall rules for test pings*); fehlen sie, lädt es die Firewall-Regeln neu (höchstens alle 15 Minuten). Beim Deinstallieren verschwinden die Regeln mit dem nächsten Neuladen, das der Paket-Deinstaller selbst auslöst.
+
 ### Selbstheilung
 
 Unter **Self-healing** (standardmäßig an, täglich 04:00 Uhr) startet das Plugin seinen eigenen Überwachungsprozess regelmäßig neu und leert seine Laufzeitdateien (Zähler, Temp-Dateien). Statistik und Umschalt-Verlauf bleiben erhalten. OPNsense, Routing, Firewall und dpinger werden dabei nicht angefasst. Der Neustart passiert nur, wenn alles in Ordnung ist (Status „Cable line OK“); während eines Failovers, eines Test-Failovers, beim Mitzählen von Fehlern oder solange eine Benachrichtigung/DNS-Umstellung aussteht, wird er auf das nächste Zeitfenster verschoben. Wählbar: täglich oder wöchentlich (Sonntag) und die Stunde.

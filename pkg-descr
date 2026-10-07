@@ -12,6 +12,17 @@ is healthy again the normal monitor IP is restored.
 Plugin Changelog
 ================
 
+1.19
+
+* Fix: a policy rule with a gateway group could still send the test
+  pings out through the backup line, so the recovery of the cable line
+  was not seen. The plugin now adds one automatic outbound firewall
+  rule per test address that routes the test pings via the cable
+  gateway (setting, on by default) and checks on every check that the
+  rules are loaded (filter reload if missing).
+* Debug mode: new "Verbose" switch that also logs route-to/reply-to
+  firewall rules, routing tables and the firewall states of the pings.
+
 1.18
 
 * Fix: during a failover the test pings could leave through the backup

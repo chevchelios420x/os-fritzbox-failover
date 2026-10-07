@@ -83,6 +83,12 @@ DEBUG_UNTIL_FILE="${HISTORY_DIR}/debug_until"
 DEBUG_AT_FILE="${HISTORY_DIR}/debug_at"
 DEBUG_LOG="${HISTORY_DIR}/debug.log"
 DEBUG_LAST="${RUNDIR}/fritzfailover.debug_last"
+# verbose debug: also firewall route-to rules, routing tables and pf states
+DEBUG_VERBOSE_FILE="${HISTORY_DIR}/debug_verbose"
+DEBUG_VERBOSE_LAST="${RUNDIR}/fritzfailover.debug_verbose_last"
+# last automatic filter reload because the test ping rules were missing
+FW_RELOAD_FILE="${RUNDIR}/fritzfailover.fw_reload"
+FW_RELOAD_PAUSE=900
 DEBUG_HOURS=12
 DEBUG_MAX_BYTES=20971520
 # desired Cloudflare DNS target (normal|failover) until the update succeeded
@@ -117,6 +123,7 @@ TR_TEXT="-"
 PING_OK=0
 PING_TEXT="-"
 MESSAGE=""
+FW_TEXT="-"
 RECORD_STATS=0
 FORCE_TR064=0
 TEST_LEFT=""
@@ -233,6 +240,7 @@ write_state()
 		printf '"monitor":"%s",' "$(json_escape "${GW_MONITOR:-}")"
 		printf '"tr064":"%s",' "$(json_escape "${TR_TEXT}")"
 		printf '"ping":"%s",' "$(json_escape "${PING_TEXT}")"
+		printf '"fwrules":"%s",' "$(json_escape "${FW_TEXT}")"
 		printf '"failures":%s,"successes":%s,' "${FAILS}" "${OKS}"
 		printf '"dry_run":%s,' "$([ "${FF_DRY_RUN:-0}" = "1" ] && echo true || echo false)"
 		printf '"targets":['
@@ -721,6 +729,45 @@ apply_monitor()
 	return 0
 }
 
+# Checks that the plugin's firewall rules for the test pings are loaded:
+# one "pass out quick route-to (<cable device> ...) proto icmp ... to <target>"
+# per test address. Missing rules trigger a filter reload, at most every
+# FW_RELOAD_PAUSE seconds. Result in FW_TEXT.
+fw_check()
+{
+	_repair="${1:-1}"
+	if [ "${FF_FW_RULES:-0}" != "1" ]; then
+		FW_TEXT="off"
+		return 0
+	fi
+	if [ -z "${GW_DEVICE:-}" ] || [ -z "${FF_PROBE_TARGETS:-}" ]; then
+		FW_TEXT="unknown"
+		return 0
+	fi
+	_rules=$(pfctl -sr 2>/dev/null | grep '^pass out' | grep 'proto icmp' | grep -F "route-to (${GW_DEVICE} ")
+	_missing=""
+	_n=0
+	for _t in ${FF_PROBE_TARGETS}; do
+		_n=$((_n + 1))
+		printf '%s\n' "${_rules}" | grep -qF " to ${_t} " || _missing="${_missing} ${_t}"
+	done
+	if [ -z "${_missing}" ]; then
+		FW_TEXT="ok (${_n} rules)"
+		return 0
+	fi
+	FW_TEXT="missing for${_missing}"
+	[ "${_repair}" = "1" ] || return 0
+	_last=$(cat "${FW_RELOAD_FILE}" 2>/dev/null)
+	is_uint "${_last}" || _last=0
+	if [ $(($(date +%s) - _last)) -ge ${FW_RELOAD_PAUSE} ]; then
+		date +%s > "${FW_RELOAD_FILE}"
+		log "firewall rules for the test pings missing for${_missing}, reloading the filter"
+		configctl filter reload skip_alias >/dev/null 2>&1 &
+		FW_TEXT="${FW_TEXT}, filter reload started"
+	fi
+	return 0
+}
+
 run_check()
 {
 	run_check_inner
@@ -767,6 +814,8 @@ run_check_inner()
 		write_state "unknown"
 		return 1
 	fi
+
+	fw_check
 
 	# catch up DNS updates / notifications that failed earlier
 	cf_sync
@@ -1001,6 +1050,7 @@ do_test()
 		return 0
 	fi
 	FORCE_TR064=1
+	fw_check 0
 	tr064_check
 	probe_ping
 	_result=$(evaluate)
@@ -1020,15 +1070,20 @@ do_test()
 	if [ "${GW_PERSISTED}" != "1" ]; then
 		MESSAGE="${MESSAGE} The gateway is not saved yet: open it once under System > Gateways and click Save, otherwise the plugin cannot change it."
 	fi
+	case "${FW_TEXT}" in
+	missing*)
+		MESSAGE="${MESSAGE} The firewall rules for the test pings are not loaded (${FW_TEXT}): click Apply or reload the firewall rules."
+		;;
+	esac
 	if [ "${GW_MONITOR}" = "${FF_BAD_MONITOR}" ]; then
 		MESSAGE="${MESSAGE} Failover is currently active."
 	elif [ "${GW_MONITOR}" != "${FF_GOOD_MONITOR}" ]; then
 		MESSAGE="${MESSAGE} Note: the gateway currently monitors ${GW_MONITOR}; after the first failover the plugin sets ${FF_GOOD_MONITOR}. Better set it yourself under System > Gateways."
 	fi
-	printf '{"status":"%s","gateway":"%s","device":"%s","monitor":"%s","tr064":"%s","ping":"%s","message":"%s"}\n' \
+	printf '{"status":"%s","gateway":"%s","device":"%s","monitor":"%s","tr064":"%s","ping":"%s","message":"%s","fwrules":"%s"}\n' \
 	    "${_res}" "$(json_escape "${FF_GATEWAY}")" "$(json_escape "${GW_DEVICE}")" \
 	    "$(json_escape "${GW_MONITOR}")" "$(json_escape "${TR_TEXT}")" \
-	    "$(json_escape "${PING_TEXT}")" "$(json_escape "${MESSAGE}")"
+	    "$(json_escape "${PING_TEXT}")" "$(json_escape "${MESSAGE}")" "$(json_escape "${FW_TEXT}")"
 }
 
 do_state()
@@ -1098,15 +1153,44 @@ debug_record()
 	_mark=" "
 	[ "${_key}" != "$(cat "${DEBUG_LAST}" 2>/dev/null)" ] && _mark="*"
 	printf '%s' "${_key}" > "${DEBUG_LAST}"
-	printf '%s %s status=%s fails=%s oks=%s monitor=%s | fritzbox: %s | link: %s | ping: %s | opnsense: %s | default route: %s | info: %s\n' \
+	printf '%s %s status=%s fails=%s oks=%s monitor=%s | fritzbox: %s | link: %s | ping: %s | fw rules: %s | opnsense: %s | default route: %s | info: %s\n' \
 	    "${_mark}" "$(date '+%Y-%m-%d %H:%M:%S')" "${LAST_STATUS:-?}" "${FAILS:-?}" "${OKS:-?}" "${GW_MONITOR:-?}" \
-	    "${_fb:-no answer}" "${_ln:-no answer}" "${PING_TEXT:--}" "${_gw:-?}" "${_rt:-?}" "${MESSAGE:-}" >> "${DEBUG_LOG}"
+	    "${_fb:-no answer}" "${_ln:-no answer}" "${PING_TEXT:--}" "${FW_TEXT:--}" "${_gw:-?}" "${_rt:-?}" "${MESSAGE:-}" >> "${DEBUG_LOG}"
+	[ -f "${DEBUG_VERBOSE_FILE}" ] && debug_verbose
 	# size limit: keep the newer half
 	_size=$(stat -f %z "${DEBUG_LOG}" 2>/dev/null || wc -c < "${DEBUG_LOG}")
 	if is_uint "${_size}" && [ "${_size}" -gt "${DEBUG_MAX_BYTES}" ]; then
 		tail -c $((DEBUG_MAX_BYTES / 2)) "${DEBUG_LOG}" > "${DEBUG_LOG}.tmp" && mv -f "${DEBUG_LOG}.tmp" "${DEBUG_LOG}"
 	fi
 	chmod 600 "${DEBUG_LOG}" 2>/dev/null
+}
+
+# Verbose debug: pf rules with route-to/reply-to, the plugin's routing tables
+# and the main default route are written when they changed; the pf states of
+# the test addresses on every check.
+debug_verbose()
+{
+	_ts=$(date '+%Y-%m-%d %H:%M:%S')
+	_snap=$(
+		echo "    pf rules with route-to/reply-to:"
+		pfctl -sr 2>/dev/null | grep -E 'route-to|reply-to' | sed 's/ label "[^"]*"//g; s/ ridentifier [0-9]*//g; s/^/      /'
+		_b=$(cat "${FIB_BASE_FILE}" 2>/dev/null)
+		for _f in 0 ${_b:+${_b} $((_b + 1))}; do
+			echo "    routing table fib ${_f} (net.fibs=$(sysctl -n net.fibs 2>/dev/null)):"
+			setfib "${_f}" netstat -rn -f inet 2>/dev/null | awk 'NR > 3 && ($1 == "default" || $3 ~ /S/) { print "      " $1 " " $2 " " $3 " " $NF }'
+		done
+	)
+	_sum=$(printf '%s' "${_snap}" | md5 2>/dev/null || printf '%s' "${_snap}" | cksum)
+	if [ "${_sum}" != "$(cat "${DEBUG_VERBOSE_LAST}" 2>/dev/null)" ]; then
+		printf '%s' "${_sum}" > "${DEBUG_VERBOSE_LAST}"
+		printf '* %s verbose: firewall/routing changed\n%s\n' "${_ts}" "${_snap}" >> "${DEBUG_LOG}"
+	fi
+	_states=""
+	for _t in ${FF_PROBE_TARGETS:-}; do
+		_st=$(pfctl -ss 2>/dev/null | grep -F " ${_t}:" | grep icmp | head -n 4 | sed 's/  */ /g' | tr '\n' ';')
+		_states="${_states} ${_t}: ${_st:-no state};"
+	done
+	printf '  %s verbose: pf states:%s\n' "${_ts}" "${_states}" >> "${DEBUG_LOG}"
 }
 
 do_debug()
@@ -1126,7 +1210,7 @@ do_debug()
 		rm -f "${DEBUG_AT_FILE}"
 		_until=$(($(date +%s) + DEBUG_HOURS * 3600))
 		echo "${_until}" > "${DEBUG_UNTIL_FILE}"
-		rm -f "${DEBUG_LAST}"
+		rm -f "${DEBUG_LAST}" "${DEBUG_VERBOSE_LAST}"
 		_ver=$(sed -n 's/.*"product_version": *"\([^"]*\)".*/\1/p' /usr/local/opnsense/version/fritzbox-failover 2>/dev/null)
 		load_config >/dev/null 2>&1
 		{
@@ -1136,6 +1220,7 @@ do_debug()
 			printf '    settings: mode=%s gateway=%s backup=%s fritzbox=%s targets=%s interval=%ss fail=%s recover=%s test_mode=%s\n' \
 			    "${FF_CHECK_MODE:-?}" "${FF_GATEWAY:-?}" "${FF_BACKUP_GATEWAY:--}" "${FF_FRITZBOX_IP:-?}" \
 			    "${FF_PROBE_TARGETS:-?}" "${FF_CHECK_INTERVAL:-?}" "${FF_FAIL_THRESHOLD:-?}" "${FF_RECOVER_THRESHOLD:-?}" "${FF_DRY_RUN:-?}"
+			printf '    firewall rules for test pings: %s, verbose logging: %s\n' "$([ "${FF_FW_RULES:-0}" = "1" ] && echo on || echo off)" "$([ -f "${DEBUG_VERBOSE_FILE}" ] && echo on || echo off)"
 			printf '    legend: "*" = a relevant value changed since the previous check\n'
 		} >> "${DEBUG_LOG}"
 		chmod 600 "${DEBUG_LOG}"
@@ -1149,7 +1234,18 @@ do_debug()
 		fi
 		;;
 	clear)
-		rm -f "${DEBUG_LOG}" "${DEBUG_LAST}"
+		rm -f "${DEBUG_LOG}" "${DEBUG_LAST}" "${DEBUG_VERBOSE_LAST}"
+		;;
+	verbose)
+		if [ "${2:-}" = "on" ]; then
+			touch "${DEBUG_VERBOSE_FILE}"
+			rm -f "${DEBUG_VERBOSE_LAST}"
+			[ -f "${DEBUG_UNTIL_FILE}" ] && printf '%s === verbose logging on ===\n' "$(date '+%Y-%m-%d %H:%M:%S')" >> "${DEBUG_LOG}"
+		else
+			[ -f "${DEBUG_VERBOSE_FILE}" ] && [ -f "${DEBUG_UNTIL_FILE}" ] && \
+			    printf '%s === verbose logging off ===\n' "$(date '+%Y-%m-%d %H:%M:%S')" >> "${DEBUG_LOG}"
+			rm -f "${DEBUG_VERBOSE_FILE}" "${DEBUG_VERBOSE_LAST}"
+		fi
 		;;
 	status)
 		_until=$(cat "${DEBUG_UNTIL_FILE}" 2>/dev/null)
@@ -1159,7 +1255,7 @@ do_debug()
 		[ -f "${DEBUG_LOG}" ] && _size=$(stat -f %z "${DEBUG_LOG}" 2>/dev/null || wc -c < "${DEBUG_LOG}")
 		_at=$(cat "${DEBUG_AT_FILE}" 2>/dev/null)
 		is_uint "${_at}" || _at=0
-		printf '{"active":%s,"until":%s,"scheduled":%s,"size":%s}\n' "$([ "${_until}" -gt 0 ] && echo true || echo false)" "${_until}" "${_at}" "$(echo ${_size} | tr -dc 0-9)"
+		printf '{"active":%s,"until":%s,"scheduled":%s,"size":%s,"verbose":%s}\n' "$([ "${_until}" -gt 0 ] && echo true || echo false)" "${_until}" "${_at}" "$(echo ${_size} | tr -dc 0-9)" "$([ -f "${DEBUG_VERBOSE_FILE}" ] && echo true || echo false)"
 		;;
 	log)
 		[ -f "${DEBUG_LOG}" ] && tail -c 10485760 "${DEBUG_LOG}"

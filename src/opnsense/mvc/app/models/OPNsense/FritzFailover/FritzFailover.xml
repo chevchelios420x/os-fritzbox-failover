@@ -11,6 +11,10 @@
             <Default>1</Default>
             <Required>Y</Required>
         </dry_run>
+        <fw_rules type="BooleanField">
+            <Default>1</Default>
+            <Required>Y</Required>
+        </fw_rules>
         <fritzbox_ip type="NetworkField">
             <Default>192.168.0.1</Default>
             <Required>Y</Required>
