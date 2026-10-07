@@ -197,14 +197,21 @@ function gateway_states()
 }
 
 /* asks the configured services in order (IPv4 only, plain text answer);
- * with a source address the request leaves through that line (force gw rule) */
-function public_ipv4($services, $source = '')
+ * with a routing table (FIB) the request leaves through that line only,
+ * independent of the firewall's own default route */
+function public_ipv4($services, $fib = '')
 {
     foreach (array_filter(explode(',', $services)) as $url) {
-        $ch = curl_init(trim($url));
-        if ($source !== '') {
-            curl_setopt($ch, CURLOPT_INTERFACE, $source);
+        if (ctype_digit((string)$fib)) {
+            $raw = shell_exec('/usr/sbin/setfib ' . (int)$fib . ' /usr/local/bin/curl -4 -fsS --connect-timeout 4 -m 6 -A curl/8.0 ' .
+                escapeshellarg(trim($url)) . ' 2>/dev/null');
+            $ip = is_string($raw) ? trim($raw) : '';
+            if (is_ipv4($ip)) {
+                return $ip;
+            }
+            continue;
         }
+        $ch = curl_init(trim($url));
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => 4,
@@ -279,9 +286,10 @@ switch ($cmd) {
         emit('GW_MONITOR', $gw !== null ? ($gw['monitor'] ?? '') : '');
         emit('GW_MONITOR_DISABLED', $gw !== null && !empty($gw['monitor_disable']) ? '1' : '0');
         emit('GW_DEVICE', resolve_device($mdl, $gw));
-        /* default "force gw" rule sends traffic sourced from an interface address via its gateway */
-        $sys = Config::getInstance()->object()->system;
-        emit('GW_FORCE_GW', empty((string)$sys->pf_disable_force_gw) ? '1' : '0');
+        /* backup gateway, used for the public IP lookup after a failover */
+        $bk = (string)$mdl->backup_gateway !== '' ? find_gateway((string)$mdl->backup_gateway) : null;
+        emit('BK_ADDR', $bk !== null && is_ipv4($bk['gateway'] ?? '') ? $bk['gateway'] : '');
+        emit('BK_DEVICE', $bk !== null && !empty($bk['if']) ? $bk['if'] : '');
         break;
 
     case 'gwlist':
@@ -409,15 +417,14 @@ switch ($cmd) {
         $title = $cmd === 'pushtest' ? 'OPNsense FRITZ!Box failover' : ($argv[2] ?? 'OPNsense FRITZ!Box failover');
         $message = $cmd === 'pushtest' ? 'Test notification: Pushover works.' : ($argv[3] ?? '');
         /* public IPv4 of the line now in use: backup line after a failover,
-         * cable line after switching back (request sourced from that line) */
+         * cable line after switching back; argv[5] is the routing table (FIB)
+         * of that line prepared by the monitor, empty = normal routing */
         $which = $argv[4] ?? '';
-        $dev = $which === 'failover' ? gateway_device((string)$mdl->backup_gateway)
-            : ($which === 'failback' ? gateway_device((string)$mdl->gateway) : '');
-        $src = $dev !== '' ? iface_ipv4($dev) : '';
-        $pubip = public_ipv4((string)$mdl->pubip_services, $src);
-        if ($which === 'failover' && $src !== '') {
+        $fib = $argv[5] ?? '';
+        $pubip = public_ipv4((string)$mdl->pubip_services, $fib);
+        if ($which === 'failover' && $fib !== '') {
             $pubip .= ' (backup line)';
-        } elseif ($which === 'failback' && $src !== '') {
+        } elseif ($which === 'failback' && $fib !== '') {
             $pubip .= ' (cable line)';
         }
         $message .= "\nPublic IP: {$pubip}";

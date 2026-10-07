@@ -12,6 +12,13 @@ is healthy again the normal monitor IP is restored.
 Plugin Changelog
 ================
 
+1.18
+
+* Fix: during a failover the test pings could leave through the backup
+  line and wrongly report the cable as working. They now use an own
+  routing table (FIB) whose only default route is the cable gateway.
+  The public IP lookup for notifications uses the same mechanism.
+
 1.17
 
 * Debug mode can be scheduled (date and time), runs 12 hours from then

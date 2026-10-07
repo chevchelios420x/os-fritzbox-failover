@@ -77,6 +77,8 @@ HISTORY_KEEP=50
 # time of the last self-healing restart (kept across reboots)
 SELFHEAL_FILE="${HISTORY_DIR}/last_selfheal"
 # debug mode: one detailed line per check, switches itself off
+# first of two own routing tables (FIBs): base = cable line, base+1 = backup
+FIB_BASE_FILE="${HISTORY_DIR}/fib_base"
 DEBUG_UNTIL_FILE="${HISTORY_DIR}/debug_until"
 DEBUG_AT_FILE="${HISTORY_DIR}/debug_at"
 DEBUG_LOG="${HISTORY_DIR}/debug.log"
@@ -391,29 +393,77 @@ tr064_check()
 	return 0
 }
 
-# One probe against a single target, sourced from the cable interface
-# address. OPNsense's default "force gw" rule (let out anything from firewall
-# host itself) then sends it through the cable gateway regardless of the
-# routing table, so the result reflects the cable line even during failover.
-# Prints the number of replies.
+# Own routing tables ---------------------------------------------------------
+#
+# The test pings must leave through the cable line even while the firewall's
+# default route points to the backup line. A source address alone is not
+# enough (the packet would follow the default route out of the backup
+# interface and be NATed there). So the plugin keeps two small routing tables
+# (FIBs) of its own: one whose only default route is the cable gateway and
+# one for the backup gateway. Processes started with setfib(1) use them; the
+# rest of the firewall keeps using table 0 and is not affected.
+
+fib_base()
+{
+	_b=$(cat "${FIB_BASE_FILE}" 2>/dev/null)
+	if ! is_uint "${_b}" || [ "${_b}" -lt 1 ]; then
+		_b=$(sysctl -n net.fibs 2>/dev/null)
+		is_uint "${_b}" || _b=1
+		[ "${_b}" -lt 1 ] && _b=1
+		mkdir -p "${HISTORY_DIR}" 2>/dev/null
+		echo "${_b}" > "${FIB_BASE_FILE}"
+	fi
+	# make sure both tables exist (net.fibs can only grow, at runtime)
+	_n=$(sysctl -n net.fibs 2>/dev/null)
+	if is_uint "${_n}" && [ "${_n}" -lt $((_b + 2)) ]; then
+		if sysctl net.fibs=$((_b + 2)) >/dev/null 2>&1; then
+			log "created routing tables ${_b} (cable) and $((_b + 1)) (backup) for test pings"
+		else
+			return 1
+		fi
+	fi
+	echo "${_b}"
+}
+
+# ensure_fib <fib> <gateway address> <device>: table holds exactly a host
+# route to the gateway on that device and a default route via the gateway
+ensure_fib()
+{
+	_f="$1"; _g="$2"; _d="$3"
+	[ -n "${_f}" ] && [ -n "${_g}" ] && [ -n "${_d}" ] || return 1
+	_cur=$(setfib "${_f}" route -n get -inet default 2>/dev/null | awk '$1 == "gateway:" { g = $2 } $1 == "interface:" { i = $2 } END { print g " " i }')
+	[ "${_cur}" = "${_g} ${_d}" ] && return 0
+	setfib "${_f}" route -q -n delete -inet default >/dev/null 2>&1
+	setfib "${_f}" route -q -n delete -inet -host "${_g}" >/dev/null 2>&1
+	setfib "${_f}" route -q -n add -inet -host "${_g}" -iface "${_d}" >/dev/null 2>&1
+	setfib "${_f}" route -q -n add -inet default "${_g}" >/dev/null 2>&1
+	_cur=$(setfib "${_f}" route -n get -inet default 2>/dev/null | awk '$1 == "gateway:" { g = $2 } $1 == "interface:" { i = $2 } END { print g " " i }')
+	[ "${_cur}" = "${_g} ${_d}" ]
+}
+
+# routing table of the cable line ('' if it cannot be set up)
+cable_fib()
+{
+	_b=$(fib_base) || return 1
+	ensure_fib "${_b}" "${GW_ADDR}" "${GW_DEVICE}" && echo "${_b}"
+}
+
+# routing table of the backup line ('' if not configured / not possible)
+backup_fib()
+{
+	_b=$(fib_base) || return 1
+	ensure_fib $((_b + 1)) "${BK_ADDR:-}" "${BK_DEVICE:-}" && echo $((_b + 1))
+}
+
+# One probe against a single target through the cable routing table, so the
+# result reflects the cable line even during a failover. Prints the replies.
 probe_one()
 {
 	_t="$1"
 	_s="$2"
-	_added=0
-	if [ "${GW_FORCE_GW}" != "1" ] && [ -n "${GW_ADDR}" ]; then
-		# force gw rule disabled by the user: fall back to a temporary host route
-		_rif=$(route -n get -inet "${_t}" 2>/dev/null | awk '$1 == "interface:" { print $2 }')
-		if [ "${_rif}" != "${GW_DEVICE}" ] &&
-		    route -q -n add -inet -host "${_t}" "${GW_ADDR}" >/dev/null 2>&1; then
-			_added=1
-		fi
-	fi
-	_o=$(ping -n -q -c "${FF_PING_COUNT}" -W "$((FF_PING_TIMEOUT * 1000))" \
+	_f="$3"
+	_o=$(setfib "${_f}" ping -n -q -c "${FF_PING_COUNT}" -W "$((FF_PING_TIMEOUT * 1000))" \
 	    -t "$((FF_PING_COUNT * FF_PING_TIMEOUT + 1))" -S "${_s}" "${_t}" 2>&1)
-	if [ "${_added}" = "1" ]; then
-		route -q -n delete -inet -host "${_t}" "${GW_ADDR}" >/dev/null 2>&1
-	fi
 	_r=$(printf '%s\n' "${_o}" | sed -n 's/.* \([0-9][0-9]*\) packets received.*/\1/p' | head -n 1)
 	echo "${_r:-0}"
 }
@@ -463,6 +513,7 @@ update_stats()
 probe_ping()
 {
 	PING_OK=0
+	PING_UNUSABLE=0
 	if [ "${USE_PING}" != "1" ]; then
 		PING_TEXT="not used"
 		return 0
@@ -481,11 +532,19 @@ probe_ping()
 		return 1
 	fi
 
+	_fib=$(cable_fib)
+	if [ -z "${_fib}" ]; then
+		# without the own routing table a ping could leave through the backup
+		# line and wrongly report the cable as working: no ping result then
+		PING_TEXT="cable routing table could not be set up (gateway address of ${FF_GATEWAY} unknown?), ping not usable"
+		PING_UNUSABLE=1
+		return 1
+	fi
 	_dir=$(mktemp -d "${RUNDIR}/fritzfailover.XXXXXX") || return 1
 	_i=0
 	for _t in ${FF_PROBE_TARGETS}; do
 		_i=$((_i + 1))
-		probe_one "${_t}" "${_src}" > "${_dir}/${_i}" &
+		probe_one "${_t}" "${_src}" "${_fib}" > "${_dir}/${_i}" &
 	done
 	wait
 
@@ -503,7 +562,7 @@ probe_ping()
 		update_stats "${_dir}"
 	fi
 	rm -rf "${_dir}"
-	PING_TEXT="${PING_TEXT} (via ${GW_DEVICE}, source ${_src})"
+	PING_TEXT="${PING_TEXT} (via ${GW_DEVICE}, table ${_fib})"
 	if [ "${_up}" -gt 0 ]; then
 		PING_OK=1
 		return 0
@@ -520,6 +579,8 @@ evaluate()
 {
 	if [ "${USE_TR064}" = "1" ] && [ "${TR_STATE}" = "down" ]; then
 		echo fail
+	elif [ "${USE_PING}" = "1" ] && [ "${PING_UNUSABLE:-0}" = "1" ]; then
+		echo unknown
 	elif [ "${USE_PING}" = "1" ] && [ "${PING_OK}" != "1" ]; then
 		echo fail
 	elif [ "${USE_PING}" = "1" ] || [ "${TR_STATE}" = "up" ]; then
@@ -595,7 +656,13 @@ push_sync()
 			_slept=1
 		fi
 		_when=$(date -r "${_ts}" '+%H:%M:%S')
-		if _out=$(${HELPER} pushover "${_title}" "${_when}: ${_msg}${_note}" "${_kind}" 2>&1); then
+		_pfib=""
+		if [ "${_kind}" = "failover" ]; then
+			_pfib=$(backup_fib)
+		else
+			_pfib=$(cable_fib)
+		fi
+		if _out=$(${HELPER} pushover "${_title}" "${_when}: ${_msg}${_note}" "${_kind}" "${_pfib}" 2>&1); then
 			log "Pushover: sent '${_title}'"
 		else
 			log_err "Pushover notification failed, will retry: ${_out}"
@@ -952,9 +1019,6 @@ do_test()
 	esac
 	if [ "${GW_PERSISTED}" != "1" ]; then
 		MESSAGE="${MESSAGE} The gateway is not saved yet: open it once under System > Gateways and click Save, otherwise the plugin cannot change it."
-	fi
-	if [ "${GW_FORCE_GW}" != "1" ]; then
-		MESSAGE="${MESSAGE} Note: 'Disable force gateway' is set in Firewall > Settings > Advanced, test pings use temporary host routes."
 	fi
 	if [ "${GW_MONITOR}" = "${FF_BAD_MONITOR}" ]; then
 		MESSAGE="${MESSAGE} Failover is currently active."

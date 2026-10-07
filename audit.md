@@ -170,7 +170,7 @@ Schweregrade: **HOCH** = Fehlfunktion oder hängender Zustand wahrscheinlich, **
 **OPNsense 26.1.11 – alle benutzten Funktionen vorhanden:**
 - `Gateways::createOrUpdateGateway()` ändert nur die übergebenen Felder (hier nur `monitor`).
 - `pluginctl -c monitor <Gateway>` startet nur den dpinger dieses einen Gateways neu (Argumentweitergabe in `pluginctl` und `dpinger_configure_do()` nachgelesen).
-- Die Regel „let out anything from firewall host itself (force gw)“ existiert und ist standardmäßig aktiv. Damit gehen die Test-Pings mit Kabel-Absenderadresse immer übers Kabel.
+- ~~Die Regel „let out anything from firewall host itself (force gw)“ … Damit gehen die Test-Pings mit Kabel-Absenderadresse immer übers Kabel.~~ **Falsch, im Praxistest widerlegt (siehe „Test-Pings während des Failovers“).**
 - Die GUI-Bausteine (`SimpleActionButton`, `updateServiceControlUI`, `mapDataToFormUI`, `saveFormToEndpoint`, Tokenizer, Passwortfeld) gibt es alle.
 - Die Validierungs-Klasse `Message` und das Validierungsmuster sind identisch zu Core-Modellen (z. B. Unbound).
 - Dienste in `/usr/local/etc/rc.d` mit `_enable=YES` startet OPNsense beim Booten über `rc.freebsd`.
@@ -291,6 +291,13 @@ Pro Prüfung (Standard alle 10 s) 2–3 kurze PHP-Aufrufe, eine UPnP-/TR-064-Anf
 - Zusätzliche Last nur während der Aufzeichnung: zwei UPnP-Abfragen, ein Aufruf von `gateway_status.php` und `route get` je Prüfung.
 - Datei nur für root lesbar (0600); öffentliche IP wird nicht protokolliert.
 - Die Selbstheilung löscht das Log täglich, aber nicht während einer laufenden Aufzeichnung; beim Deinstallieren wird es mit `/var/db/fritzfailover` entfernt.
+
+### Test-Pings während des Failovers (behoben in 1.18)
+
+- **Befund aus dem Praxistest:** Während eines Failovers gingen die Test-Pings trotz Kabel-Absenderadresse über die Backup-Leitung hinaus und meldeten das Kabel fälschlich als wieder erreichbar. Die Annahme, die OPNsense-Regel „force gw“ würde solche Pakete aufs Kabel zwingen, war falsch. Folge: mögliche Rückschaltung auf eine tote Leitung (Flattern).
+- **Behebung:** Das Plugin legt zwei eigene Routing-Tabellen an (FreeBSD-FIBs, `net.fibs` wird zur Laufzeit erhöht – laut FreeBSD-14.3-Quellcode `sysctl_fibs` erlaubt, nur Vergrößerung). Tabelle „Kabel“ enthält nur eine Host-Route zum Kabel-Gateway über die Kabel-Schnittstelle und eine Standardroute darüber; Tabelle „Backup“ entsprechend. Test-Pings laufen per `setfib` in der Kabel-Tabelle, die IP-Abfrage für Push-Nachrichten in der passenden Tabelle. Der übrige Verkehr der Firewall nutzt weiter Tabelle 0. OPNsense selbst verwendet keine zusätzlichen FIBs (im Core-Quellcode geprüft).
+- Lässt sich die Kabel-Tabelle nicht einrichten (z. B. Gateway-Adresse unbekannt), gilt das Ping-Ergebnis als unbrauchbar und es wird nicht anhand der Pings entschieden.
+- Mit nachgebauten Programmen getestet (Ping ohne eigene Tabelle „leckt“ über das Backup): Das Plugin bleibt im Failover, bis das Kabel selbst antwortet. Auf echter Hardware noch zu bestätigen.
 
 ### Restrisiken
 

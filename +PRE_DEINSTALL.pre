@@ -15,6 +15,15 @@ if [ "${PKG_UPGRADE:-}" != "true" ] && [ -x "${SCRIPT}" ]; then
 	# normal monitor IP back if the fake one is active
 	echo "Restoring the normal gateway monitor IP"
 	"${SCRIPT}" restore >/dev/null 2>&1 || :
-	# switch history
+	# empty the plugin's own routing tables (net.fibs itself shrinks at reboot)
+	B=$(cat /var/db/fritzfailover/fib_base 2>/dev/null)
+	case "${B}" in
+	''|*[!0-9]*) ;;
+	*)
+		setfib "${B}" route -q flush >/dev/null 2>&1 || :
+		setfib $((B + 1)) route -q flush >/dev/null 2>&1 || :
+		;;
+	esac
+	# switch history, debug log
 	rm -rf /var/db/fritzfailover
 fi

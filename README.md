@@ -18,7 +18,7 @@ Das Plugin wird als fertiges `.pkg` installiert. Auf der Firewall müssen **kein
 Das Gateway wird im Normalbetrieb **gegen die FRITZ!Box** überwacht (stabil, kein Fehlalarm). Ob das Internet hinter der Kabelleitung wirklich funktioniert, entscheidet das Plugin. Dafür prüft es alle paar Sekunden:
 
 1. **Den Status der FRITZ!Box**: den Wert `NewConnectionStatus` aus `WANIPConnection:1` → `GetStatusInfo`, wahlweise per UPnP ohne Anmeldung (empfohlen) oder per TR-064 mit eigenem FRITZ!Box-Benutzer. Er erkennt, wenn die Box ihre Verbindung verliert (Kabel-Sync weg, keine IP-Adresse mehr). Einen gestörten Vodafone-Backbone erkennt er **nicht**, weil die Box dann weiter „Connected“ meldet. Zusätzlich wird der physische Leitungsstatus abgefragt (`WANCommonInterfaceConfig:1` → `NewPhysicalLinkStatus`); meldet die Box „Down“, gilt die Leitung sofort als gestört. Beide Abfragen funktionieren per UPnP ohne Passwort auf allen geprüften Modellen.
-2. **Einen Internet-Test über die Kabelleitung**: Ping an mehrere Adressen gleichzeitig (Standard `9.9.9.9`, `1.1.1.1`, `8.8.8.8`), mit der Adresse der Kabel-Schnittstelle als Absender. Die OPNsense-Regel „let out anything from firewall host itself (force gw)“ schickt diese Pings immer über das Kabel-Gateway, auch während des Failovers. Für jeden Test wird ein neuer Ping-Prozess gestartet. Die Leitung gilt erst als tot, wenn **keine** Adresse antwortet.
+2. **Einen Internet-Test über die Kabelleitung**: Ping an mehrere Adressen gleichzeitig (Standard `9.9.9.9`, `1.1.1.1`, `8.8.8.8`). Die Pings laufen über eine eigene Routing-Tabelle des Plugins (FreeBSD-FIB), deren einzige Standardroute das Kabel-Gateway ist. Sie gehen deshalb immer über das Kabel, auch während des Failovers, wenn die Firewall selbst über das Backup routet; der übrige Verkehr der Firewall ist davon nicht betroffen. Für jeden Test wird ein neuer Ping-Prozess gestartet. Die Leitung gilt erst als tot, wenn **keine** Adresse antwortet.
 
 Welche Prüfungen benutzt werden, stellst du in der GUI ein: beide (empfohlen), nur die FRITZ!Box oder nur der Ping.
 
@@ -79,7 +79,6 @@ Deinstallieren: `pkg delete os-fritzbox-failover`. Dabei wird der Dienst gestopp
 ### 2. OPNsense vorbereiten
 - **System → Gateways → Konfiguration**: Kabel-Gateway (z. B. `WAN_CABLE_GW` oder `WAN_DHCP`) und Backup-Gateway (5G/LTE) müssen vorhanden sein, **Monitoring aktiviert**.
 - Beim Kabel-Gateway als **Monitor-IP die FRITZ!Box** eintragen (z. B. `192.168.0.1`) und **speichern**. Das Gateway muss gespeichert sein, das gilt auch für automatisch erzeugte Gateways wie `WAN_DHCP`. Das Plugin legt selbst keine Gateways an.
-- **Firewall → Einstellungen → Erweitert**: die Option „Disable force gateway“ **nicht** anhaken (Standard). Sonst weicht das Plugin für die Test-Pings auf kurzzeitige Host-Routen aus.
 - **System → Gateways → Gruppen**: Gruppe anlegen, Kabel = Tier 1, Backup = Tier 2, Auslöser „Paketverlust“ oder „Mitglied ausgefallen“.
 - Die Gateway-Gruppe in den Firewall-Regeln (LAN) als Gateway eintragen.
 
