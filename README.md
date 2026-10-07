@@ -53,20 +53,9 @@ So siehst du nach ein paar Tagen, ob das Plugin in dieser Zeit richtig entschied
 
 ---
 
-## Installation mit Windows (am einfachsten)
+## Installation (eine Zeile per SSH)
 
-1. [`tools/Install-FritzFailover.ps1`](tools/Install-FritzFailover.ps1) herunterladen (auf der Seite rechts oben „Download raw file“).
-2. Rechtsklick auf die Datei → **„Mit PowerShell ausführen“**.
-   Falls Windows das blockiert: PowerShell öffnen und
-   `powershell -ExecutionPolicy Bypass -File .\Install-FritzFailover.ps1` eingeben.
-3. IP der OPNsense und Benutzer (`root`) eingeben; das Passwort fragt ssh ab (bei Prüfung und Installation je einmal).
-   Benötigt nur den in Windows 10/11 eingebauten OpenSSH-Client.
-
-Das Skript prüft per SSH, ob die OPNsense passt (Version, FreeBSD 14, nötige Programme, Speicherplatz, Download von GitHub, FRITZ!Box erreichbar), zeigt die gefundenen Gateways an und installiert das Plugin nach Rückfrage. Mit `-CheckOnly` wird nur geprüft.
-
-Voraussetzung: SSH ist in der OPNsense aktiviert (**System → Einstellungen → Verwaltung → Secure Shell**, inkl. Root-Login mit Passwort).
-
-## Installation per SSH (eine Zeile)
+Voraussetzung: SSH ist in der OPNsense aktiviert (**System → Einstellungen → Verwaltung → Secure Shell**).
 
 Per SSH auf der OPNsense anmelden (Menüpunkt `8) Shell`) und einfügen:
 

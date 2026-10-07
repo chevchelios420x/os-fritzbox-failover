@@ -5,7 +5,7 @@ Zielsystem: OPNsense 26.1.11_10 (FreeBSD 14.3, VM auf Proxmox mit VirtIO), FRITZ
 
 ## Was geprüft wurde
 
-- Der gesamte Code: Shell-Skript, PHP-Hilfsskript, Modell, Controller, GUI, configd-Aktionen, rc.d-Skript, Release-Workflow, PowerShell-Installer.
+- Der gesamte Code: Shell-Skript, PHP-Hilfsskript, Modell, Controller, GUI, configd-Aktionen, rc.d-Skript, Release-Workflow, PowerShell-Installer (inzwischen entfernt).
 - Jede OPNsense-Funktion, die das Plugin benutzt, gegen den Quellcode von **opnsense/core Tag 26.1.11**.
 - Das veröffentlichte Paket v1.0: entpackt, Dateiliste, Manifest und Installationsskripte gelesen.
 - Die Umschaltlogik mit nachgebauten Programmen (FRITZ!Box-Antwort, ping, pluginctl) simuliert.
@@ -174,7 +174,7 @@ Schweregrade: **HOCH** = Fehlfunktion oder hängender Zustand wahrscheinlich, **
 - Die GUI-Bausteine (`SimpleActionButton`, `updateServiceControlUI`, `mapDataToFormUI`, `saveFormToEndpoint`, Tokenizer, Passwortfeld) gibt es alle.
 - Die Validierungs-Klasse `Message` und das Validierungsmuster sind identisch zu Core-Modellen (z. B. Unbound).
 - Dienste in `/usr/local/etc/rc.d` mit `_enable=YES` startet OPNsense beim Booten über `rc.freebsd`.
-- `opnsense-shell` reicht per SSH übergebene Befehle an eine Shell weiter. Der PowerShell-Installer funktioniert also mit dem root-Login.
+- `opnsense-shell` reicht per SSH übergebene Befehle an eine Shell weiter. Der (inzwischen entfernte) PowerShell-Installer funktionierte also mit dem root-Login.
 
 **Paket v1.0:**
 - Name `os-fritzbox-failover`, Version 1.0, ABI `FreeBSD:14:amd64`. Das passt zu OPNsense 26.1 (FreeBSD 14.3, amd64).
