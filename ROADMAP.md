@@ -14,6 +14,8 @@ Grundsatz: Das Plugin nutzt nur Werte, die auf allen bestätigten FRITZ!Boxen (6
 
 - DOCSIS-Pegel (oben) – nur bei Kabel-Boxen und nur mit Login über die Weboberfläche.
 
+- Kontroll-Ziel „nur übers Kabel erreichbar“: ein Testziel markieren, das nur von der öffentlichen Kabel-IP antwortet (z. B. eigener Server mit IP-Freigabe). Antworten die übrigen Ziele, dieses aber nicht, laufen die Test-Pings über eine andere Leitung: Warnung anzeigen und die Pings nicht als Erfolg werten. Seit 1.18/1.19 durch eigene Routing-Tabelle und Firewall-Regeln abgedeckt; nur als zusätzliche Absicherung gedacht.
+
 ## Erledigt
 
 - DSL mit PPPoE-Einwahl: nicht nötig. Eine 7590 (FRITZ!OS 8.21, `NewLinkType=PPPoE`) liefert den Status per UPnP ebenfalls über `WANIPConnection:1`, `WANPPPConnection` wird nicht gebraucht.

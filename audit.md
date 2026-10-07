@@ -323,7 +323,7 @@ Pro Prüfung (Standard alle 10 s) 2–3 kurze PHP-Aufrufe, eine UPnP-/TR-064-Anf
 ### Auswertung Debug-Log vom 07.10. (1.17 und 1.22)
 
 - Drei Ausfälle (08:14–08:20, 09:38–09:43, ab 21:59): Die FRITZ!Box meldete durchgehend „Connected“, keinen Fehler und Leitung „Up“, ihre Verbindung lief ohne Neuverbindung weiter (Uptime passt zur Uhrzeit). Erkannt wurden die Ausfälle nur über die Pings; dpinger zur FRITZ!Box zeigte 0 % Verlust.
-- Vormittags (1.17) beendete das alte Ping-Leck beide Failover: Im Failover antworteten 9.9.9.9 und 1.1.1.1, das dritte Ziel nicht. Die Pings liefen also über 5G. Nach dem Zurückschalten war das Kabel zufällig wieder in Ordnung. Abends (1.22) über die Kabel-Tabelle durchgehend 0/2, also kein Leck mehr.
+- Vormittags (1.17) beendete das alte Ping-Leck beide Failover: Im Failover antworteten 9.9.9.9 und 1.1.1.1, das dritte Ziel nicht. Dieses Ziel ist ein eigener Server, der Pings bewusst nur von der Kabel-IP beantwortet; die Pings liefen also nachweislich über 5G. Nach dem Zurückschalten war das Kabel zufällig wieder in Ordnung. Abends (1.22) über die Kabel-Tabelle durchgehend 0/2, also kein Leck mehr.
 - Prüfabstand: ca. 11,7 s bei Erfolg, ca. 15 s bei fehlschlagenden Pings (Timeout). Ausreißer: Die Prüfung mit der Umschaltung um 09:39:58 dauerte 90 s; die Ursache steht nicht im Debug-Log (Systemlog prüfen).
 - Das Backup-Gateway wird von OPNsense nur gegen den 5G-Router (192.168.1.1) überwacht. Ein Ausfall der Mobilfunkverbindung selbst würde OPNsense nicht bemerken (Konfiguration, nicht Plugin).
 
