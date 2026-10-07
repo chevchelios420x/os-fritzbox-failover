@@ -744,15 +744,31 @@ fw_check()
 		FW_TEXT="unknown"
 		return 0
 	fi
-	_rules=$(pfctl -sr 2>/dev/null | grep '^pass out' | grep 'proto icmp' | grep -F "route-to (${GW_DEVICE} ")
+	_all=$(pfctl -sr 2>/dev/null)
+	_rules=$(printf '%s\n' "${_all}" | grep -n '^pass out' | grep 'proto icmp' | grep -F "route-to (${GW_DEVICE} ")
 	_missing=""
+	_first=""
 	_n=0
 	for _t in ${FF_PROBE_TARGETS}; do
 		_n=$((_n + 1))
-		printf '%s\n' "${_rules}" | grep -qF " to ${_t} " || _missing="${_missing} ${_t}"
+		_ln=$(printf '%s\n' "${_rules}" | grep -F " to ${_t} " | head -n 1 | cut -d: -f1)
+		if [ -z "${_ln}" ]; then
+			_missing="${_missing} ${_t}"
+		elif [ -z "${_first}" ] || [ "${_ln}" -lt "${_first}" ]; then
+			_first=${_ln}
+		fi
 	done
 	if [ -z "${_missing}" ]; then
 		FW_TEXT="ok (${_n} rules)"
+		# another rule with route-to loaded before the plugin's rules could
+		# still redirect the test pings: name it, so the user knows where to look
+		_before=$(printf '%s\n' "${_all}" | head -n $((_first - 1)) | grep -E 'route-to|reply-to' | grep -vF "route-to (${GW_DEVICE} " | head -n 1)
+		if [ -n "${_before}" ]; then
+			_lbl=$(printf '%s' "${_before}" | sed -n 's/.* label "\([^"]*\)".*/\1/p')
+			_descr=""
+			[ -n "${_lbl}" ] && _descr=$(grep -F "label \"${_lbl}\"" /tmp/rules.debug 2>/dev/null | head -n 1 | sed -n 's/.*# *//p')
+			FW_TEXT="warning: a rule with a gateway is loaded before the plugin's rules (${_descr:-$(printf '%s' "${_before}" | sed 's/ label "[^"]*"//; s/ ridentifier [0-9]*//' | cut -c1-120)}), check Firewall > Rules > Floating and plugins with own rules"
+		fi
 		return 0
 	fi
 	FW_TEXT="missing for${_missing}"

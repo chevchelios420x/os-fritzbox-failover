@@ -12,6 +12,11 @@ is healthy again the normal monitor IP is restored.
 Plugin Changelog
 ================
 
+1.20
+
+* The firewall rule check also warns when another rule with a gateway
+  (route-to/reply-to) is loaded before the plugin's rules and names it.
+
 1.19
 
 * Fix: a policy rule with a gateway group could still send the test

@@ -115,7 +115,7 @@ POSSIBILITY OF SUCH DAMAGE.
                 $('#ff_tr064').text(data.tr064 || '-');
                 $('#ff_ping').text(data.ping || '-');
                 $('#ff_fwrules').text(data.fwrules || '-')
-                    .css('color', (data.fwrules || '').indexOf('missing') === 0 ? '#c9302c' : '');
+                    .css('color', /^(missing|warning)/.test(data.fwrules || '') ? '#c9302c' : '');
                 $('#ff_monitor').text(data.monitor || '-');
                 $('#ff_counters').text((data.failures !== undefined ? data.failures : '-') + ' / ' + (data.successes !== undefined ? data.successes : '-'));
                 $('#ff_last').text(data.last_check || '-');
