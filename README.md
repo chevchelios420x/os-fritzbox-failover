@@ -1,38 +1,55 @@
 # os-fritzbox-failover
 
-OPNsense-Plugin für einen sauberen, automatischen WAN-Failover hinter einer **FRITZ!Box Cable** (getestet mit FRITZ!Box 6660 Cable, FRITZ!OS 8.x) – z. B. Vodafone-Kabel als Hauptleitung, 5G/LTE als Backup.
+OPNsense-Plugin für einen zuverlässigen, automatischen WAN-Failover zwischen zwei Leitungen:
 
-Das Plugin wird als fertiges `.pkg` installiert. Auf der Firewall müssen **kein git, keine opnsense-devtools und kein Compiler** installiert werden.
+- **Hauptleitung** hinter einer **Haupt-FRITZ!Box** (z. B. FRITZ!Box 6660 Cable an Vodafone-Kabel, eine 7590 an DSL oder Glasfaser),
+- **Failover-Leitung** über ein zweites Gateway (z. B. eine FRITZ!Box 6850 5G oder ein anderer LTE/5G-Router).
+
+Das Plugin erkennt, ob über die Hauptleitung wirklich Internet kommt, und lässt OPNsense dann mit seinen eigenen Gateway-Gruppen umschalten. Es wird als fertiges `.pkg` installiert; auf der Firewall sind **kein git, keine opnsense-devtools und kein Compiler** nötig.
 
 ---
 
-## Das Problem: falscher Failover trotz funktionierender Kabelleitung
+## Das Problem
 
 - OPNsense überwacht ein Gateway mit `dpinger`, der dauerhaft eine Monitor-IP anpingt.
-- Steht dort eine Internet-Adresse wie `9.9.9.9`, läuft das oft Minuten oder Stunden gut. Irgendwann meldet dpinger auf virtualisierten OPNsense-Instanzen (VirtIO, `vtnet`) hinter der FRITZ!Box aber **100 % Verlust, obwohl die Leitung sauber läuft**. OPNsense schaltet dann unnötig auf 5G/LTE um.
-- Steht als Monitor-IP die **FRITZ!Box selbst** (z. B. `192.168.0.1`, gleich der Gateway-Adresse), tritt das nicht auf. Dann erkennt OPNsense aber keine echten Ausfälle mehr, etwa wenn bei Vodafone der Backbone gestört ist, das Modem aber synchron bleibt.
+- Steht dort eine Internet-Adresse wie `9.9.9.9`, meldet dpinger auf manchen Installationen (z. B. virtualisiert mit VirtIO/`vtnet` hinter einer FRITZ!Box) irgendwann **100 % Verlust, obwohl die Leitung läuft**. OPNsense schaltet dann unnötig auf die Failover-Leitung.
+- Steht als Monitor-IP die **Haupt-FRITZ!Box selbst** (z. B. `192.168.0.1`), gibt es keine Fehlalarme mehr. Dann erkennt OPNsense aber keine echten Ausfälle: Die FRITZ!Box bleibt erreichbar und meldet oft weiter „verbunden“, obwohl beim Anbieter kein Verkehr mehr durchgeht. Genau solche Ausfälle sind in der Praxis häufig.
 - Das Gateway zu deaktivieren ist keine Lösung: Damit brechen Gateway-Gruppen und **Policy-Based-Routing-Regeln**.
 
 ## Die Lösung
 
-Das Gateway wird im Normalbetrieb **gegen die FRITZ!Box** überwacht (stabil, kein Fehlalarm). Ob das Internet hinter der Kabelleitung wirklich funktioniert, entscheidet das Plugin. Dafür prüft es alle paar Sekunden:
+Das Haupt-Gateway wird im Normalbetrieb **gegen die Haupt-FRITZ!Box** überwacht (stabil, kein Fehlalarm). Ob dahinter wirklich Internet ankommt, entscheidet das Plugin. Dafür prüft es alle paar Sekunden:
 
-1. **Den Status der FRITZ!Box**: den Wert `NewConnectionStatus` aus `WANIPConnection:1` → `GetStatusInfo`, wahlweise per UPnP ohne Anmeldung (empfohlen) oder per TR-064 mit eigenem FRITZ!Box-Benutzer. Er erkennt, wenn die Box ihre Verbindung verliert (Kabel-Sync weg, keine IP-Adresse mehr). Einen gestörten Vodafone-Backbone erkennt er **nicht**, weil die Box dann weiter „Connected“ meldet. Zusätzlich wird der physische Leitungsstatus abgefragt (`WANCommonInterfaceConfig:1` → `NewPhysicalLinkStatus`); meldet die Box „Down“, gilt die Leitung sofort als gestört. Beide Abfragen funktionieren per UPnP ohne Passwort auf allen geprüften Modellen.
-2. **Einen Internet-Test über die Kabelleitung**: Ping an mehrere Adressen gleichzeitig (Standard `9.9.9.9`, `1.1.1.1`, `8.8.8.8`). Die Pings laufen über eine eigene Routing-Tabelle des Plugins (FreeBSD-FIB), deren einzige Standardroute das Kabel-Gateway ist. Sie gehen deshalb immer über das Kabel, auch während des Failovers, wenn die Firewall selbst über das Backup routet; der übrige Verkehr der Firewall ist davon nicht betroffen. Für jeden Test wird ein neuer Ping-Prozess gestartet. Die Leitung gilt erst als tot, wenn **keine** Adresse antwortet.
+1. **Den Status der Haupt-FRITZ!Box** per UPnP ohne Passwort (oder TR-064 mit eigenem Benutzer):
+   - Verbindungsstatus (`WANIPConnection:1` → `GetStatusInfo` → `NewConnectionStatus`),
+   - physischer Leitungsstatus (`WANCommonInterfaceConfig:1` → `NewPhysicalLinkStatus`); „Down“ gilt sofort als Ausfall.
+2. **Einen Internet-Test über die Hauptleitung**: Pings an mehrere Adressen (Standard `9.9.9.9`, `1.1.1.1`, `8.8.8.8`). Die Leitung gilt erst als tot, wenn **keine** Adresse antwortet. Die Pings laufen auch während eines Failovers nachweislich über die Hauptleitung (siehe unten).
 
-Welche Prüfungen benutzt werden, stellst du in der GUI ein: beide (empfohlen), nur die FRITZ!Box oder nur der Ping.
+Welche Prüfungen benutzt werden, stellst du ein: beide (empfohlen), nur die FRITZ!Box oder nur die Pings.
 
-Ist die Leitung mehrmals hintereinander tot (Standard 3), setzt das Plugin die **Monitor-IP des Kabel-Gateways auf eine tote Adresse** (`192.0.2.1`). Dazu startet es nur den Gateway-Monitor (dpinger) dieses einen Gateways neu (`pluginctl -c monitor <Gateway>`). dpinger meldet 100 % Verlust, und OPNsense schaltet mit seinen **eigenen Gateway-Gruppen** auf das Backup um. Ist die Leitung wieder mehrmals hintereinander gesund, wird die normale Monitor-IP (die FRITZ!Box) zurückgesetzt, und OPNsense schaltet selbst zurück.
+Ist die Hauptleitung mehrmals hintereinander tot (Standard 3), setzt das Plugin die **Monitor-IP des Haupt-Gateways auf eine Adresse, die nie antwortet** (`192.0.2.1`) und startet nur den dpinger dieses Gateways neu. dpinger meldet 100 % Verlust, und OPNsense schaltet mit seinen **eigenen Gateway-Gruppen** auf die Failover-Leitung. Ist die Hauptleitung wieder mehrmals hintereinander gesund, setzt das Plugin die normale Monitor-IP zurück, und OPNsense schaltet selbst zurück.
 
-Das Plugin greift so wenig wie möglich ein. Es ändert **ausschließlich die Monitor-IP eines bestehenden Gateways** und startet den dpinger dieses Gateways neu. Es legt keine Gateways an, deaktiviert keine, löscht keine Routen und lädt weder Routing noch Firewall selbst neu. Die Umschaltung macht OPNsense wie bei jedem Gateway-Ausfall.
+## Was das Plugin an der OPNsense ändert
+
+Die Umschaltung selbst macht immer OPNsense, wie bei jedem Gateway-Ausfall. Das Plugin legt **keine Gateways an, deaktiviert keine und löscht keine**. Damit die Erkennung auch im Failover stimmt, greift es aber an einigen Stellen ein:
+
+| Was | Wann | Warum |
+|---|---|---|
+| Monitor-IP des Haupt-Gateways (in `config.xml`, ohne Eintrag in der Konfigurations-Historie) und Neustart von dessen dpinger | bei jeder Umschaltung | löst den Failover bzw. die Rückschaltung aus |
+| Zwei eigene Routing-Tabellen (FreeBSD-FIBs, `net.fibs` wird erhöht) mit je einer Standardroute über das Haupt- bzw. Failover-Gateway | beim Start | Test-Pings und IP-Abfragen laufen gezielt über eine Leitung, egal wohin die Firewall gerade routet. Der übrige Verkehr nutzt weiter die normale Tabelle. |
+| Automatische Firewall-Regeln: pro Testadresse eine ICMP-Regel über das Haupt-Gateway (abschaltbar) | beim Laden der Firewall-Regeln | verhindert, dass eine Regel mit Gateway-Gruppe die Test-Pings im Failover auf die Failover-Leitung umleitet |
+| Neu Laden der Firewall-Regeln | bei „Apply“, bei Installation/Deinstallation und automatisch, wenn die Regeln oben fehlen (höchstens alle 15 Minuten) | damit die Regeln zu den Einstellungen passen |
+| Cloudflare-DNS-Eintrag, Pushover-Nachricht | nur wenn eingerichtet, bei echten Umschaltungen | optional, siehe unten |
+
+Nicht angefasst werden LAN-Einstellungen, deine eigenen Firewall-Regeln, Web-GUI und SSH. Die OPNsense bleibt aus dem LAN immer erreichbar.
 
 ### Testmodus (Dry Run)
 
-Nach der Installation ist der **Testmodus eingeschaltet**. Dabei laufen alle Prüfungen, aber an der OPNsense wird **nichts** geändert. Die Statusseite zeigt:
+Nach der Installation ist der **Testmodus eingeschaltet**. Alle Prüfungen laufen, aber Monitor-IP, DNS und Benachrichtigungen bleiben unverändert. Die Statusseite zeigt:
 - was das Plugin tun *würde* („würde jetzt auf Backup umschalten“),
 - eine **Statistik pro Testadresse**: Prüfungen, verlorene Pings, Prüfungen ganz ohne Antwort, Zeitpunkt des letzten Verlusts.
 
-So siehst du nach ein paar Tagen, ob die Testadressen (z. B. `9.9.9.9`) dieselben Aussetzer haben wie dpinger, und ob das Plugin in dieser Zeit fälschlich umgeschaltet hätte. Jeder verlorene Ping steht zusätzlich im Systemlog (Tag `fritzfailover`). Erst wenn alles sauber aussieht, schaltest du den Testmodus aus.
+So siehst du nach ein paar Tagen, ob das Plugin in dieser Zeit richtig entschieden hätte. Jeder verlorene Ping steht zusätzlich im Systemlog (Tag `fritzfailover`). Erst wenn alles sauber aussieht, schaltest du den Testmodus aus.
 
 ---
 
@@ -45,7 +62,7 @@ So siehst du nach ein paar Tagen, ob die Testadressen (z. B. `9.9.9.9`) dieselbe
 3. IP der OPNsense und Benutzer (`root`) eingeben; das Passwort fragt ssh ab (bei Prüfung und Installation je einmal).
    Benötigt nur den in Windows 10/11 eingebauten OpenSSH-Client.
 
-Das Skript prüft per SSH, ob die OPNsense passt (Version, FreeBSD 14, nötige Programme, Speicherplatz, Download von GitHub, FRITZ!Box/TR-064 erreichbar), zeigt die gefundenen Gateways an und installiert das Plugin nach Rückfrage. Mit `-CheckOnly` wird nur geprüft.
+Das Skript prüft per SSH, ob die OPNsense passt (Version, FreeBSD 14, nötige Programme, Speicherplatz, Download von GitHub, FRITZ!Box erreichbar), zeigt die gefundenen Gateways an und installiert das Plugin nach Rückfrage. Mit `-CheckOnly` wird nur geprüft.
 
 Voraussetzung: SSH ist in der OPNsense aktiviert (**System → Einstellungen → Verwaltung → Secure Shell**, inkl. Root-Login mit Passwort).
 
@@ -60,64 +77,84 @@ curl -fL --retry 3 --connect-timeout 15 --progress-bar -o /tmp/os-fritzbox-failo
 Danach die Weboberfläche neu laden. Das Plugin erscheint unter **Dienste → FRITZ!Box Failover** und in **System → Firmware → Plugins** als installiert.
 
 Updates: denselben Befehl erneut ausführen. Ein laufender Failover bleibt dabei erhalten, der Dienst wird danach automatisch neu gestartet.
-Deinstallieren: `pkg delete os-fritzbox-failover`. Dabei wird der Dienst gestoppt und die normale Monitor-IP zurückgesetzt.
+Deinstallieren: `pkg delete os-fritzbox-failover`. Dabei wird der Dienst gestoppt, die normale Monitor-IP zurückgesetzt, die Routing-Tabellen des Plugins geleert und die Firewall-Regeln neu geladen (ohne die Plugin-Regeln).
 
 ---
 
 ## Einrichtung
 
-### 1. FRITZ!Box vorbereiten
+### 1. Haupt-FRITZ!Box vorbereiten
 
 **Empfohlen, ohne Passwort:** unter **Heimnetz → Netzwerk → Netzwerkeinstellungen** die Option **„Statusinformationen über UPnP übertragen“** aktivieren. Das Plugin liest den Verbindungsstatus dann ohne Anmeldung. Auf der OPNsense wird kein FRITZ!Box-Passwort gespeichert.
 
 **Nur falls das nicht geht, per TR-064:**
 - **Heimnetz → Netzwerk → Netzwerkeinstellungen → „Zugriff für Anwendungen zulassen“** aktivieren.
-- **System → FRITZ!Box-Benutzer**: einen **eigenen** Benutzer nur für die OPNsense anlegen, nicht dein eigenes Konto. Zuerst ohne Zusatzrechte anlegen und mit „Verbindung testen“ prüfen. Nur wenn das nicht reicht, Rechte schrittweise ergänzen. Welches Recht die Abfrage mindestens braucht, ist nicht geprüft.
+- **System → FRITZ!Box-Benutzer**: einen **eigenen** Benutzer nur für die OPNsense anlegen, nicht dein eigenes Konto. Zuerst ohne Zusatzrechte anlegen und mit „Verbindung testen“ prüfen. Nur wenn das nicht reicht, Rechte schrittweise ergänzen.
 - Das Passwort steht im Klartext in der OPNsense-Konfiguration (wie alle Passwörter dort) und damit auch in jedem Konfigurations-Backup.
 - Nach einer fehlgeschlagenen Anmeldung pausiert das Plugin TR-064 für 15 Minuten, damit die FRITZ!Box die Anmeldung nicht sperrt. In der Zeit nutzt es UPnP, falls aktiviert.
 
 ### 2. OPNsense vorbereiten
-- **System → Gateways → Konfiguration**: Kabel-Gateway (z. B. `WAN_CABLE_GW` oder `WAN_DHCP`) und Backup-Gateway (5G/LTE) müssen vorhanden sein, **Monitoring aktiviert**.
-- Beim Kabel-Gateway als **Monitor-IP die FRITZ!Box** eintragen (z. B. `192.168.0.1`) und **speichern**. Das Gateway muss gespeichert sein, das gilt auch für automatisch erzeugte Gateways wie `WAN_DHCP`. Das Plugin legt selbst keine Gateways an.
-- **System → Gateways → Gruppen**: Gruppe anlegen, Kabel = Tier 1, Backup = Tier 2, Auslöser „Paketverlust“ oder „Mitglied ausgefallen“.
+- **System → Gateways → Konfiguration**: Haupt-Gateway (z. B. `WAN_DHCP` oder `WAN_CABLE_GW`) und Failover-Gateway (z. B. `WAN_5G`) müssen vorhanden sein, **Monitoring aktiviert**.
+- Beim Haupt-Gateway als **Monitor-IP die Haupt-FRITZ!Box** eintragen (z. B. `192.168.0.1`) und **speichern**. Das gilt auch für automatisch erzeugte Gateways wie `WAN_DHCP`; das Plugin ändert nur gespeicherte Gateways.
+- **System → Gateways → Gruppen**: Gruppe anlegen, Haupt-Gateway = Tier 1, Failover-Gateway = Tier 2, Auslöser „Paketverlust“ oder „Mitglied ausgefallen“.
 - Die Gateway-Gruppe in den Firewall-Regeln (LAN) als Gateway eintragen.
+- Damit die Firewall selbst (DNS, Benachrichtigungen) im Failover ins Internet kommt: **System → Einstellungen → Allgemein** → „Allow default gateway switching“ aktivieren.
 
 ### 3. Plugin konfigurieren (Dienste → FRITZ!Box Failover)
 
+Die Weboberfläche ist englisch; dort heißt die Hauptleitung „cable“.
+
 | Feld | Standard | Bedeutung |
 |---|---|---|
-| FRITZ!Box IP-Adresse | `192.168.0.1` | Adresse der FRITZ!Box aus Sicht der OPNsense |
-| Erkennung | FRITZ!Box + Ping | wie ein Ausfall erkannt wird (siehe oben) |
-| TR-064 Benutzer / Passwort | leer | optional; leer = Status per UPnP ohne Anmeldung |
-| Kabel-Gateway | `WAN_CABLE_GW` | Auswahl aus den gefundenen Gateways |
-| Kabel-Schnittstelle | Automatisch | z. B. WAN (`vtnet5`); automatisch = Schnittstelle des Gateways |
-| Normale Monitor-IP | `192.168.0.1` | die FRITZ!Box, gleiche Adresse wie das Gateway |
-| Fake-Monitor-IP | `192.0.2.1` | antwortet nie, löst den Failover aus |
-| Internet-Testadressen | `9.9.9.9, 1.1.1.1, 8.8.8.8` | mindestens zwei; werden über das Kabel angepingt, tot erst, wenn keine antwortet |
-| Prüfintervall | 10 s | wie oft geprüft wird |
-| Pings pro Prüfung | 2 | je Testadresse |
-| Ping-Timeout | 2 s | |
-| Fehler bis Failover | 3 | Fehlschläge in Folge bis zur Umschaltung |
-| Erfolge bis Rückschaltung | 3 | Erfolge in Folge bis zur Rückschaltung |
+| FRITZ!Box IP address | `192.168.0.1` | Adresse der Haupt-FRITZ!Box aus Sicht der OPNsense |
+| How to detect a dead cable line | FRITZ!Box + Ping | wie ein Ausfall erkannt wird (siehe oben) |
+| TR-064 username / password | leer | optional; leer = Status per UPnP ohne Anmeldung |
+| Cable gateway name | – | das Haupt-Gateway, Auswahl aus den gefundenen Gateways |
+| Backup gateway | – | das Failover-Gateway; für die Abfrage der öffentlichen IP über die Failover-Leitung |
+| Cable interface | Automatisch | Schnittstelle der Hauptleitung, z. B. WAN (`vtnet5`) |
+| Normal monitor IP | `192.168.0.1` | die Haupt-FRITZ!Box |
+| Fake monitor IP | `192.0.2.1` | antwortet nie, löst den Failover aus |
+| Internet test addresses | `9.9.9.9, 1.1.1.1, 8.8.8.8` | mindestens zwei; tot erst, wenn keine antwortet |
+| Check interval | 10 s | wie oft geprüft wird |
+| Pings per check | 2 | je Testadresse |
+| Ping timeout | 2 s | |
+| Failures before failover | 3 | Fehlschläge in Folge bis zur Umschaltung |
+| Successes before switching back | 3 | Erfolge in Folge bis zur Rückschaltung; bei wackligen Leitungen höher setzen |
+| Firewall rules for test pings | an | siehe unten |
 
-Dann **„Verbindung testen“** klicken und anschließend **„Übernehmen“**. Der Testmodus ist anfangs an, siehe oben. Der Status oben auf der Seite zeigt live, was das Plugin sieht. Meldungen landen im Systemlog (Tag `fritzfailover`).
+Dann **„Test connection“** klicken und anschließend **„Apply“**. Der Testmodus ist anfangs an, siehe oben. Der Status oben auf der Seite zeigt live, was das Plugin sieht. Meldungen landen im Systemlog (Tag `fritzfailover`).
+
+### Wie die Test-Pings über die Hauptleitung gehen
+
+Im Failover routet die Firewall selbst über die Failover-Leitung. Damit die Test-Pings trotzdem die Hauptleitung prüfen, nutzt das Plugin zwei Mechanismen:
+
+1. **Eigene Routing-Tabelle:** Die Pings laufen per `setfib` in einer Tabelle, deren einzige Standardroute das Haupt-Gateway ist. Lässt sich die Tabelle nicht einrichten, werden die Pings nicht für die Entscheidung verwendet.
+2. **Firewall-Regeln (Firewall rules for test pings):** Pro Testadresse eine automatische Floating-Regel
+   `pass out quick route-to (<Haupt-Schnittstelle> <Haupt-Gateway>) inet proto icmp from (<Haupt-Schnittstelle>) to <Testadresse>`.
+   Sie hat Priorität 1 und steht damit vor allen Floating-, Gruppen- und Schnittstellenregeln aus der GUI. Typischer Grund, warum sie nötig ist: eine eigene Floating-Regel in Richtung **out** mit Gateway-Gruppe, die auch den Verkehr der Firewall selbst erfasst und ihn im Failover auf die Failover-Leitung umleitet.
+
+Das Plugin prüft bei jeder Prüfung, ob die Regeln geladen sind (Statuszeile *Firewall rules for test pings*). Fehlen sie, lädt es die Firewall-Regeln neu (höchstens alle 15 Minuten). Steht eine andere Regel mit Gateway davor (z. B. von einem anderen Plugin), zeigt die Statuszeile eine Warnung mit deren Beschreibung.
+
+Tipp: Eine Testadresse, die **nur** von der öffentlichen IP deiner Hauptleitung antwortet (z. B. ein eigener Server mit IP-Freigabe), zeigt eindeutig, ob die Pings wirklich über die Hauptleitung gehen.
 
 ### Verhalten bei Neustart, Deaktivieren und Deinstallieren
 
 | Situation | Was mit einem aktiven Failover passiert |
 |---|---|
-| „Übernehmen“, Dienst-Neustart, Reboot, Update | **bleibt erhalten**. Der Dienst setzt nach dem Start fort und schaltet erst zurück, wenn die Kabelleitung wirklich wieder gesund ist. |
-| Plugin deaktivieren, Testmodus einschalten | normale Monitor-IP wird zurückgesetzt, OPNsense schaltet zurück aufs Kabel |
+| „Apply“, Dienst-Neustart, Reboot, Update | **bleibt erhalten**. Der Dienst setzt nach dem Start fort und schaltet erst zurück, wenn die Hauptleitung wirklich wieder gesund ist. |
+| Plugin deaktivieren, Testmodus einschalten | normale Monitor-IP wird zurückgesetzt, OPNsense schaltet zurück auf die Hauptleitung |
 | Plugin deinstallieren | normale Monitor-IP wird zurückgesetzt |
-| Dienst nur gestoppt (Plugin bleibt aktiv) | **bleibt erhalten** (Internet läuft weiter über das Backup). Die Statusseite zeigt das an. |
+| Dienst nur gestoppt (Plugin bleibt aktiv) | **bleibt erhalten** (Internet läuft weiter über die Failover-Leitung). Die Statusseite zeigt das an. |
+
+Nach einem Neustart der OPNsense misst das Plugin die ersten 2 Minuten nur und schaltet nicht um. So löst eine noch nicht fertige WAN-Verbindung beim Booten keinen Failover aus.
 
 ### Cloudflare-DNS umschalten (optional)
 
-Damit z. B. WireGuard-Clients bei einem Failover automatisch über die Backup-Leitung kommen, kann das Plugin einen DNS-Eintrag bei Cloudflare umstellen:
+Damit z. B. WireGuard-Clients bei einem Failover automatisch über die Failover-Leitung kommen, kann das Plugin einen DNS-Eintrag bei Cloudflare umstellen:
 
 - **Record (CNAME):** z. B. `wg.domain.com`, der Name, den deine Clients benutzen.
-- **Normales Ziel:** z. B. `fritz-cable.domain.com` (DynDNS der Kabel-FRITZ!Box).
-- **Failover-Ziel:** z. B. `fritz-5g.domain.com` (DynDNS der Backup-Leitung).
+- **Normales Ziel:** z. B. `fritz-main.domain.com` (DynDNS der Haupt-FRITZ!Box).
+- **Failover-Ziel:** z. B. `fritz-5g.domain.com` (DynDNS der Failover-Leitung).
 - **TTL:** 60 Sekunden (Minimum bei Cloudflare).
 
 **API-Token anlegen:** dash.cloudflare.com → My Profile → API Tokens → Create Token → *Create Custom Token*
@@ -129,23 +166,42 @@ Der Eintrag wird als CNAME „DNS only“ (nicht proxied) gesetzt; existiert er 
 
 ### Push-Benachrichtigung per Pushover (optional)
 
-Bei jedem Failover (und auf Wunsch bei der Rückschaltung) kommt eine Pushover-Nachricht, sobald OPNsense tatsächlich umgeschaltet hat (Kabel-Gateway als offline bzw. wieder online gemeldet, spätestens nach 5 Minuten), plus eine einstellbare Verzögerung (3–30 Sekunden, Standard 5), damit sich das Routing gesetzt hat. Trägst du das **Backup-Gateway** ein, wird die öffentliche IP gezielt über die Backup-Leitung (Failover) bzw. über das Kabel (Rückschaltung) abgefragt, unabhängig vom Routing der Firewall selbst. Die Nachricht enthält Uhrzeit, Grund und die öffentliche IPv4-Adresse (ermittelt im Moment des Versands, also die der gerade genutzten Leitung). Die Dienste dafür sind einstellbar, Standard `https://ifconfig.me/ip` und `https://ip.me`; sie werden der Reihe nach über IPv4 gefragt. Mindestens zwei eintragen, falls einer ausfällt. Nötig sind ein **Application API Token** (pushover.net → Your Applications → Create an Application) und dein **User Key**. Mit **„Send test push“** prüfst du die Einstellungen.
+Bei jedem Failover (und auf Wunsch bei der Rückschaltung) kommt eine Pushover-Nachricht, sobald OPNsense tatsächlich umgeschaltet hat. Das erkennt das Plugin am Gateway-Status oder an der Standardroute der Firewall; spätestens nach 5 Minuten wird trotzdem gesendet. Dazu kommt eine einstellbare Verzögerung (3–30 Sekunden, Standard 5).
 
-**Wichtig für beides:** Direkt beim Failover ist das Kabel tot, und die Firewall selbst erreicht Cloudflare/Pushover erst, wenn OPNsense umgeschaltet hat. Das Plugin versucht es deshalb bei jeder Prüfung erneut, bis es klappt. Damit die Firewall selbst über das Backup ins Internet kommt, unter **System → Einstellungen → Allgemein** „Allow default gateway switching“ aktivieren. Beides passiert nur bei echten Umschaltungen und beim Test-Failover, nie im Testmodus.
+Die Nachricht enthält Uhrzeit, Grund und die öffentliche IPv4-Adresse der jetzt genutzten Leitung. Trägst du das **Backup gateway** ein, wird die IP gezielt über die Failover-Leitung (Failover) bzw. die Hauptleitung (Rückschaltung) abgefragt. Die Dienste dafür sind einstellbar, Standard `https://ifconfig.me/ip` und `https://ip.me`; mindestens zwei eintragen, falls einer ausfällt. Nötig sind ein **Application API Token** (pushover.net → Your Applications → Create an Application) und dein **User Key**. Mit **„Send test push“** prüfst du die Einstellungen.
+
+Kommt Cloudflare oder Pushover nicht durch (z. B. direkt beim Ausfall), versucht es das Plugin bei jeder Prüfung erneut. Beides passiert nur bei echten Umschaltungen und beim Test-Failover, nie im Testmodus.
 
 ### Umschalt-Verlauf
 
-Die Statusseite zeigt, wann zuletzt auf das Backup umgeschaltet wurde, seit wann das Backup aktiv ist (mit laufender Dauer) und eine Tabelle der letzten 20 Umschaltungen mit Grund. Der Verlauf liegt unter `/var/db/fritzfailover/` und übersteht Neustarts; beim Deinstallieren wird er gelöscht.
+Die Statusseite zeigt, wann zuletzt umgeschaltet wurde, seit wann die Failover-Leitung aktiv ist (mit laufender Dauer) und eine Tabelle der letzten 20 Umschaltungen mit Grund. Der Verlauf liegt unter `/var/db/fritzfailover/` und übersteht Neustarts; beim Deinstallieren wird er gelöscht.
+
+Umschaltungen werden ohne Eintrag in der Konfigurations-Historie gespeichert, damit eine flappende Leitung deine echten Backups nicht aus der Historie verdrängt. Jede Umschaltung steht im Systemlog (Tag `fritzfailover`).
 
 ### Test-Failover
 
-Der Button **„Test failover (2 minutes)“** löst einen **echten** Failover für 2 Minuten aus, auf genau demselben Weg wie bei einem Ausfall: Die Monitor-IP des Kabel-Gateways wird auf die Fake-Monitor-IP gesetzt, dpinger meldet 100 % Verlust, OPNsense schaltet nativ auf das Backup. Nach 2 Minuten wird die normale Monitor-IP gesetzt und OPNsense schaltet zurück. Das funktioniert auch im Testmodus. Während des Tests trifft das Plugin keine eigenen Entscheidungen. Stoppen des Dienstes oder „Normale Monitor-IP wiederherstellen“ beendet den Test sofort. Während des Tests zeigt die Statusseite einen Countdown mit Fortschrittsbalken.
+Der Button **„Test failover (2 minutes)“** löst einen **echten** Failover für 2 Minuten aus, auf demselben Weg wie bei einem Ausfall: Die Monitor-IP des Haupt-Gateways wird auf die Fake-Monitor-IP gesetzt, dpinger meldet 100 % Verlust, OPNsense schaltet auf die Failover-Leitung. Nach 2 Minuten wird die normale Monitor-IP gesetzt und OPNsense schaltet zurück. Das funktioniert auch im Testmodus. Während des Tests trifft das Plugin keine eigenen Entscheidungen, misst aber weiter über die Hauptleitung; die Statusseite zeigt einen Countdown. Stoppen des Dienstes oder **„Restore normal monitor IP“** beendet den Test sofort.
 
-Mit dem Button **„Normale Monitor-IP wiederherstellen“** auf der Statusseite setzt du die normale Monitor-IP jederzeit sofort zurück.
+### Debug-Modus
 
-Nach einem Neustart der OPNsense misst das Plugin die ersten 2 Minuten nur und schaltet nicht um. So löst eine noch nicht fertige WAN-Verbindung beim Booten keinen Failover aus.
+Für die Analyse eines Ausfalls (z. B. wenn ein Techniker an der Leitung arbeitet): Auf der Statusseite ganz unten den Bereich **Debug mode** aufklappen und **„Start debug mode (12 hours)“** drücken. Ab dann wird bei jeder Prüfung eine Zeile geschrieben mit
+- Entscheidung des Plugins, Zählern und aktiver Monitor-IP,
+- Rohwerten der Haupt-FRITZ!Box (Verbindungsstatus, letzter Verbindungsfehler, Uptime, physischer Leitungsstatus, Anschlussart),
+- Ergebnis jedes Test-Pings und Zustand der Plugin-Firewall-Regeln,
+- Sicht von OPNsense auf beide Gateways (Status, Verlust, Latenz, Monitor-IP),
+- Standardroute der Firewall.
 
-Umschaltungen werden ohne Eintrag in der Konfigurations-Historie gespeichert, damit eine flappende Leitung deine echten Backups nicht aus der Historie verdrängt. Jede Umschaltung steht im Systemlog (Tag `fritzfailover`).
+Zeilen, in denen sich etwas Relevantes geändert hat, beginnen mit `*`. Der Modus endet nach spätestens 12 Stunden von selbst. Er lässt sich auch **planen**: Datum und Uhrzeit wählen, „Schedule“ drücken; ab dann läuft er 12 Stunden (der Dienst muss dafür laufen). Mit **„Download debug log“** lädst du die Datei herunter (`/var/db/fritzfailover/debug.log`, max. 20 MB). Die tägliche Selbstheilung löscht das Log, aber nie während einer laufenden Aufzeichnung. Die öffentliche IP wird nicht protokolliert.
+
+Mit dem Schalter **Verbose** schreibt der Debug-Modus zusätzlich
+- alle geladenen Firewall-Regeln mit `route-to`/`reply-to` (Gateway-Gruppen, Policy-Routing),
+- die Standard- und statischen Routen der normalen und der beiden Plugin-Routing-Tabellen,
+
+jeweils nur wenn sich daran etwas geändert hat, sowie bei jeder Prüfung die Firewall-States der Test-Pings. Damit sieht man direkt, ob eine Regel die Test-Pings umleitet.
+
+### Selbstheilung
+
+Unter **Self-healing** (standardmäßig an, täglich 04:00 Uhr) startet das Plugin seinen eigenen Überwachungsprozess regelmäßig neu und leert seine Laufzeitdateien (Zähler, Temp-Dateien). Statistik und Umschalt-Verlauf bleiben erhalten. OPNsense, Routing, Firewall und dpinger werden dabei nicht angefasst. Der Neustart passiert nur, wenn alles in Ordnung ist; während eines Failovers, eines Test-Failovers, beim Mitzählen von Fehlern oder solange eine Benachrichtigung/DNS-Umstellung aussteht, wird er auf das nächste Zeitfenster verschoben. Wählbar: täglich oder wöchentlich (Sonntag) und die Stunde.
 
 ### Langzeitbetrieb
 
@@ -156,6 +212,7 @@ Alles, was das Plugin speichert, ist in der Größe begrenzt:
 | Status, Zähler, Sperre | `/var/run/fritzfailover.*` | je eine Zeile bzw. einige hundert Byte, wird überschrieben |
 | Statistik je Testadresse | `/var/run/fritzfailover.stats` | eine Zeile je Adresse |
 | Umschalt-Verlauf | `/var/db/fritzfailover/history` | max. 50 Einträge |
+| Debug-Log | `/var/db/fritzfailover/debug.log` | nur im Debug-Modus, max. 20 MB |
 | Push-Warteschlange | `/var/run/fritzfailover.push_queue` | nur bis zum Versand, max. 1 Tag |
 | Konfiguration | `config.xml` | nur bei Umschaltungen, ohne Backup-Einträge |
 | Systemlog | OPNsense-Log (rotiert von OPNsense) | normal nichts; nur Umschaltungen und verlorene Pings |
@@ -169,33 +226,6 @@ Prozesse: ein dauerhafter Überwachungsprozess (von `daemon(8)` bei einem Abstur
 
 Abhilfe in allen Fällen: Dienst unter **System → Diagnose → Dienste** neu starten (ein aktiver Failover bleibt dabei erhalten).
 
-### Debug-Modus
-
-Für die Analyse eines Ausfalls (z. B. wenn ein Techniker an der Leitung arbeitet): Auf der Statusseite ganz unten den Bereich **Debug mode** aufklappen und **„Start debug mode (12 hours)“** drücken. Ab dann wird bei jeder Prüfung eine Zeile geschrieben mit
-- Entscheidung des Plugins, Zählern und aktiver Monitor-IP,
-- Rohwerten der FRITZ!Box (Verbindungsstatus, letzter Verbindungsfehler, Uptime, physischer Leitungsstatus, Anschlussart),
-- Ergebnis jedes Test-Pings,
-- Sicht von OPNsense auf Kabel- und Backup-Gateway (Status, Verlust, Latenz, Monitor-IP),
-- Standardroute der Firewall.
-
-Zeilen, in denen sich etwas Relevantes geändert hat, beginnen mit `*`. Der Modus endet nach spätestens 12 Stunden von selbst. Er lässt sich auch **planen**: Datum und Uhrzeit wählen, „Schedule“ drücken; ab dann läuft er 12 Stunden (der Dienst muss dafür laufen). Mit **„Download debug log“** lädst du die Datei herunter (`/var/db/fritzfailover/debug.log`, max. 20 MB). Die tägliche Selbstheilung löscht das Log, aber nie während einer laufenden Aufzeichnung. Die öffentliche IP wird nicht protokolliert.
-
-Mit dem Schalter **Verbose** schreibt der Debug-Modus zusätzlich
-- alle geladenen Firewall-Regeln mit `route-to`/`reply-to` (Gateway-Gruppen, Policy-Routing),
-- die Standard- und statischen Routen der Haupt-Routing-Tabelle und der beiden Plugin-Tabellen (FIBs),
-
-jeweils nur wenn sich daran etwas geändert hat (Block mit `* … verbose: firewall/routing changed`), sowie bei jeder Prüfung die Firewall-States der Test-Pings (über welche Schnittstelle/welches Gateway sie gerade laufen). Damit sieht man direkt, ob eine Regel die Test-Pings umleitet.
-
-### Firewall-Regeln für die Test-Pings
-
-Unter **Firewall rules for test pings** (Standard: an) legt das Plugin pro Testadresse eine automatische Floating-Regel an (sichtbar unter *Firewall → Regeln → Floating* als automatisch erzeugt):
-`pass out quick route-to (<Kabel-Schnittstelle> <Kabel-Gateway>) inet proto icmp from (<Kabel-Schnittstelle>) to <Testadresse>`.
-Sie sorgt dafür, dass die Test-Pings des Plugins auch dann über das Kabel gehen, wenn eine eigene Regel mit Gateway-Gruppe (`route-to`) sie sonst während des Failovers auf das Backup schicken würde. Sie passt nur auf ICMP von der Kabel-Adresse der Firewall zu den Testadressen; anderer Verkehr ist nicht betroffen. Typischer Auslöser ist eine Floating-Regel in Richtung **out** mit Gateway-Gruppe, die auch auf den Kabel- und Backup-Schnittstellen gilt: Sie erfasst auch den eigenen Verkehr der Firewall. „Apply“ lädt die Firewall-Regeln neu. Das Plugin prüft bei jeder Prüfung, ob die Regeln geladen sind (Statuszeile *Firewall rules for test pings*); fehlen sie, lädt es die Firewall-Regeln neu (höchstens alle 15 Minuten). Die Plugin-Regeln haben Priorität 1 und stehen damit vor allen Floating-, Gruppen- und Schnittstellenregeln aus der GUI. Steht trotzdem eine andere Regel mit Gateway davor (z. B. von einem anderen Plugin), zeigt die Statuszeile eine Warnung mit deren Beschreibung. Beim Deinstallieren verschwinden die Regeln mit dem nächsten Neuladen, das der Paket-Deinstaller selbst auslöst.
-
-### Selbstheilung
-
-Unter **Self-healing** (standardmäßig an, täglich 04:00 Uhr) startet das Plugin seinen eigenen Überwachungsprozess regelmäßig neu und leert seine Laufzeitdateien (Zähler, Temp-Dateien). Statistik und Umschalt-Verlauf bleiben erhalten. OPNsense, Routing, Firewall und dpinger werden dabei nicht angefasst. Der Neustart passiert nur, wenn alles in Ordnung ist (Status „Cable line OK“); während eines Failovers, eines Test-Failovers, beim Mitzählen von Fehlern oder solange eine Benachrichtigung/DNS-Umstellung aussteht, wird er auf das nächste Zeitfenster verschoben. Wählbar: täglich oder wöchentlich (Sonntag) und die Stunde.
-
 ### Notfall per SSH
 
 ```sh
@@ -206,11 +236,11 @@ Unter **Self-healing** (standardmäßig an, täglich 04:00 Uhr) startet das Plug
 pkg delete -y os-fritzbox-failover
 ```
 
-Das Plugin ändert nichts an LAN, Firewall-Regeln, Web-GUI oder SSH. Die OPNsense bleibt aus dem LAN immer erreichbar.
-
 ---
 
 ## Geprüfte FRITZ!Boxen
+
+Alle genannten Modelle liefern die benötigten Werte per UPnP ohne Passwort; jede davon kann als Haupt-FRITZ!Box dienen.
 
 | Modell | FRITZ!OS | Anschluss | Status per UPnP (ohne Passwort) |
 |---|---|---|---|
