@@ -12,6 +12,13 @@ is healthy again the normal monitor IP is restored.
 Plugin Changelog
 ================
 
+1.21
+
+* Fix: the public IP in notifications could be "unknown". The lookup
+  through the line's own routing table could not reach the local DNS
+  resolver; the name is now resolved first, with a fallback to the
+  normal routing.
+
 1.20
 
 * The firewall rule check also warns when another rule with a gateway

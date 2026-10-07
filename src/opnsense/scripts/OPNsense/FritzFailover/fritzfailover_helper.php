@@ -201,17 +201,31 @@ function gateway_states()
  * independent of the firewall's own default route */
 function public_ipv4($services, $fib = '')
 {
-    foreach (array_filter(explode(',', $services)) as $url) {
-        if (ctype_digit((string)$fib)) {
-            $raw = shell_exec('/usr/sbin/setfib ' . (int)$fib . ' /usr/local/bin/curl -4 -fsS --connect-timeout 4 -m 6 -A curl/8.0 ' .
-                escapeshellarg(trim($url)) . ' 2>/dev/null');
-            $ip = is_string($raw) ? trim($raw) : '';
-            if (is_ipv4($ip)) {
-                return $ip;
+    $urls = array_filter(array_map('trim', explode(',', $services)));
+    if (ctype_digit((string)$fib)) {
+        foreach ($urls as $url) {
+            /*
+             * The plugin's routing tables only hold the default route of one
+             * line, not the loopback route to the local DNS resolver, so the
+             * name is resolved here (main table) and handed to curl.
+             */
+            $host = parse_url($url, PHP_URL_HOST);
+            $port = parse_url($url, PHP_URL_PORT) ?: (parse_url($url, PHP_URL_SCHEME) === 'http' ? 80 : 443);
+            $addrs = is_string($host) ? (is_ipv4($host) ? [$host] : (gethostbynamel($host) ?: [])) : [];
+            foreach (array_slice($addrs, 0, 2) as $addr) {
+                $raw = shell_exec('/usr/sbin/setfib ' . (int)$fib . ' /usr/local/bin/curl -4 -fsS --connect-timeout 4 -m 6 -A curl/8.0 ' .
+                    '--resolve ' . escapeshellarg($host . ':' . $port . ':' . $addr) . ' ' .
+                    escapeshellarg($url) . ' 2>/dev/null');
+                $ip = is_string($raw) ? trim($raw) : '';
+                if (is_ipv4($ip)) {
+                    return $ip;
+                }
             }
-            continue;
         }
-        $ch = curl_init(trim($url));
+        /* no answer through the line's own table: fall back to the normal routing */
+    }
+    foreach ($urls as $url) {
+        $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => 4,

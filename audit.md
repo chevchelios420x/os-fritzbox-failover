@@ -308,6 +308,11 @@ Pro Prüfung (Standard alle 10 s) 2–3 kurze PHP-Aufrufe, eine UPnP-/TR-064-Anf
 - **Verbose-Debug:** schreibt `route-to`/`reply-to`-Regeln und Routen der FIBs bei Änderung sowie die pf-States der Test-Pings je Prüfung.
 - Noch auf echter Hardware zu bestätigen (Test-Failover, danach Kabel wieder hochkommen lassen).
 
+### Öffentliche IP „unknown“ (behoben in 1.21)
+
+- Die IP-Abfrage über die eigene Routing-Tabelle der Leitung (`setfib`) konnte den lokalen DNS-Resolver (127.0.0.1) nicht erreichen: Neue FIBs enthalten keine Loopback- und Schnittstellenrouten (`net.add_addr_allfibs=0`), nur die vom Plugin gesetzten Routen.
+- Behebung: Der Name wird vorher in der Haupttabelle aufgelöst und curl per `--resolve` übergeben. Klappt die Abfrage über die Leitungstabelle trotzdem nicht, wird über das normale Routing abgefragt (zu diesem Zeitpunkt hat OPNsense bereits umgeschaltet).
+
 ### Restrisiken
 
 - Was sich nur im Dauerbetrieb zeigt (z. B. Verhalten der FRITZ!Box bei Abfragen alle 10 s über Monate oder Speicherverhalten von PHP/OPNsense selbst), lässt sich nicht im Voraus testen. Die Warnung bei ausbleibenden Prüfungen macht ein Hängen sichtbar.
